@@ -31,3 +31,8 @@ XXMI용으로 제작된 멀티 토글 모드에서 추출된 모델 파일을 in
 ### 5. 잠시 기다린 후 분리 완료
 <img width="300" height="302" alt="image" src="https://github.com/user-attachments/assets/69577e1f-b873-490f-89ef-9ed8fc8f3bfd" />
 
+
+# 라이센스
+This project is licensed under the [MIT License](LICENSE).
+
+© 2025 DPN-dpn
