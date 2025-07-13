@@ -1,7 +1,7 @@
 bl_info = {
     "name": "INI 기반 파츠 분리",
     "author": "OpenAI + DPN",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
     "description": "INI 파일을 기반으로 DrawIndexed 파츠를 오브젝트에서 분리합니다.",
@@ -76,30 +76,51 @@ class OT_SeparatePartsFromIni(Operator):
             self.report({'ERROR'}, "INI 파일과 섹션을 선택해야 합니다.")
             return {'CANCELLED'}
 
-        drawindexed_map = []
-        current_section = None
-        last_comment = None
-        seen = set()
-
+        # 🔄 섹션별 라인 저장
+        section_map = {}
         with open(ini_path, encoding='utf-8') as f:
+            current_section = None
             for line in f:
-                stripped = line.strip()
-                if stripped.startswith('[') and stripped.endswith(']'):
-                    current_section = stripped[1:-1]
-                elif current_section == section:
-                    if stripped.startswith(';'):
-                        comment_match = re.match(r";\s*([^\(]+)", stripped)
-                        if comment_match:
-                            last_comment = comment_match.group(1).strip()
-                    elif stripped.lower().startswith("drawindexed"):
-                        parts = stripped.split('=', 1)
-                        if len(parts) == 2:
-                            value = parts[1].strip()
-                            if re.match(r"^\d+,\s*\d+,\s*0$", value):
-                                if value not in seen:
-                                    seen.add(value)
-                                    drawindexed_map.append((value, last_comment or f"draw_{len(drawindexed_map)+1}"))
-                                last_comment = None
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
+                    current_section = line[1:-1]
+                    section_map[current_section] = []
+                elif current_section:
+                    section_map[current_section].append(line)
+
+        drawindexed_map = []
+        seen = set()
+        last_comment = None
+
+        def extract_drawindexed(lines):
+            nonlocal seen, last_comment
+            results = []
+            for line in lines:
+                if line.startswith(';'):
+                    comment_match = re.match(r";\s*([^\(]+)", line)
+                    if comment_match:
+                        last_comment = comment_match.group(1).strip()
+                elif line.lower().startswith("drawindexed"):
+                    parts = line.split('=', 1)
+                    if len(parts) == 2:
+                        value = parts[1].strip()
+                        if re.match(r"^\d+,\s*\d+,\s*0$", value) and value not in seen:
+                            seen.add(value)
+                            results.append((value, last_comment or f"draw_{len(seen)}"))
+                    last_comment = None
+            return results
+
+        # 1. 직접적인 drawindexed
+        drawindexed_map.extend(extract_drawindexed(section_map.get(section, [])))
+
+        # 2. run=CommandListXXX 추적
+        for line in section_map.get(section, []):
+            if line.lower().startswith("run"):
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    target = parts[1].strip()
+                    if target in section_map:
+                        drawindexed_map.extend(extract_drawindexed(section_map[target]))
 
         if not drawindexed_map:
             self.report({'ERROR'}, "drawindexed 항목이 없습니다.")
@@ -194,21 +215,15 @@ class PT_IBSectionSelector(Panel):
             layout.label(text=f"INI: {props.ini_path.split('/')[-1]}")
             layout.prop(props, "section")
 
-        # 메시 오브젝트가 선택되었고, INI 경로와 섹션이 모두 존재할 경우에만 파츠 분리 버튼 활성화
         obj = context.active_object
-
-        # 조건을 명확히 True/False로 설정
         enable_button = (
             obj is not None and obj.type == 'MESH'
-            and bool(props.ini_path.strip())  # INI 파일 경로가 비어 있지 않으면 True
-            and bool(props.section.strip())   # 섹션이 비어 있지 않으면 True
+            and bool(props.ini_path.strip())
+            and bool(props.section.strip())
         )
 
-        # 버튼을 활성화할 조건을 row.enabled에 True/False로 설정
         row = layout.row()
-        row.enabled = enable_button  # True/False 값으로 설정
-
-        # 버튼을 그리기
+        row.enabled = enable_button
         row.operator("object.separate_parts_from_ini", text="파츠 분리")
 
 
