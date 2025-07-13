@@ -2,7 +2,7 @@
 
 
 # 미리보기
-https://github.com/user-attachments/assets/c43aba82-d24a-4766-b444-a2c50b5b906e
+![Image](https://github.com/user-attachments/assets/a4e21b28-8088-4630-a2b9-a4e58663cb50)
 
 
 # 기능
