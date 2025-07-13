@@ -1,7 +1,8 @@
+
 bl_info = {
     "name": "INI 기반 파츠 분리",
     "author": "OpenAI + DPN",
-    "version": (1, 3),
+    "version": (1, 4),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
     "description": "INI 파일을 기반으로 DrawIndexed 파츠를 오브젝트에서 분리합니다.",
@@ -11,12 +12,12 @@ bl_info = {
 import bpy
 import bmesh
 import re
-from bpy_extras.io_utils import ImportHelper
-from bpy.types import Operator, Panel
+from bpy.types import Operator, Panel, PropertyGroup
 from bpy.props import StringProperty, EnumProperty, PointerProperty
+from bpy_extras.io_utils import ImportHelper
 
 
-class INISectionProperties(bpy.types.PropertyGroup):
+class INISectionProperties(PropertyGroup):
     ini_path: StringProperty(name="INI 파일 경로", default="")
     _section_items = []
 
@@ -47,10 +48,9 @@ class OT_SelectIniFile(Operator, ImportHelper):
                 if line.startswith('[') and line.endswith(']'):
                     current_section = line[1:-1]
                 elif current_section and current_section.startswith("TextureOverride"):
-                    if line.lower().startswith("ib"):
-                        if current_section not in found_sections:
-                            ib_sections.append((current_section, current_section, ""))
-                            found_sections.add(current_section)
+                    if line.lower().startswith("ib") and current_section not in found_sections:
+                        ib_sections.append((current_section, current_section, ""))
+                        found_sections.add(current_section)
 
         if not ib_sections:
             self.report({'ERROR'}, "IB 섹션이 없습니다.")
@@ -58,35 +58,23 @@ class OT_SelectIniFile(Operator, ImportHelper):
 
         INISectionProperties._section_items = ib_sections
         props.section = ib_sections[0][0]
-
         return {'FINISHED'}
 
 
-class OT_SeparatePartsFromIni(Operator):
-    bl_idname = "object.separate_parts_from_ini"
-    bl_label = "INI로 파츠 분리"
+class OT_SeparatePartsFromIniModal(Operator):
+    bl_idname = "object.separate_parts_from_ini_modal"
+    bl_label = "INI로 파츠 분리 (모달)"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
-        props = context.scene.ini_section_props
-        ini_path = props.ini_path
-        section = props.section
+    _timer = None
+    _index = 0
+    _drawindexed_map = []
+    _original_obj = None
+    _original_collections = []
+    _scene_collection = None
+    _new_collection = None
 
-        if not ini_path or not section:
-            self.report({'ERROR'}, "INI 파일과 섹션을 선택해야 합니다.")
-            return {'CANCELLED'}
-
-        section_map = {}
-        with open(ini_path, encoding='utf-8') as f:
-            current_section = None
-            for line in f:
-                line = line.strip()
-                if line.startswith('[') and line.endswith(']'):
-                    current_section = line[1:-1]
-                    section_map[current_section] = []
-                elif current_section:
-                    section_map[current_section].append(line)
-
+    def extract_drawindexed_all(self, ini_path, section_map, section):
         drawindexed_map = []
         seen = set()
         last_comment = None
@@ -118,42 +106,86 @@ class OT_SeparatePartsFromIni(Operator):
                     target = parts[1].strip()
                     if target in section_map:
                         drawindexed_map.extend(extract_drawindexed(section_map[target]))
+        return drawindexed_map
 
-        if not drawindexed_map:
+    def invoke(self, context, event):
+        props = context.scene.ini_section_props
+        ini_path = props.ini_path
+        section = props.section
+
+        if not ini_path or not section:
+            self.report({'ERROR'}, "INI 파일과 섹션을 선택해야 합니다.")
+            return {'CANCELLED'}
+
+        section_map = {}
+        with open(ini_path, encoding='utf-8') as f:
+            current_section = None
+            for line in f:
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
+                    current_section = line[1:-1]
+                    section_map[current_section] = []
+                elif current_section:
+                    section_map[current_section].append(line)
+
+        self._drawindexed_map = self.extract_drawindexed_all(ini_path, section_map, section)
+        if not self._drawindexed_map:
             self.report({'ERROR'}, "drawindexed 항목이 없습니다.")
             return {'CANCELLED'}
 
-        original_obj = bpy.context.active_object
-        if not original_obj or original_obj.type != 'MESH':
+        self._original_obj = context.active_object
+        if not self._original_obj or self._original_obj.type != 'MESH':
             self.report({'ERROR'}, "메시 오브젝트를 선택하세요.")
             return {'CANCELLED'}
 
-        original_obj_name = original_obj.name
-        original_collections = list(original_obj.users_collection)
-        scene_collection = context.scene.collection
+        self._original_collections = list(self._original_obj.users_collection)
+        self._scene_collection = context.scene.collection
 
-        # 원래 컬렉션에 씬 컬렉션 포함 여부 체크
-        is_original_in_scene_collection = scene_collection in original_collections
+        if self._scene_collection not in self._original_collections:
+            for col in self._original_collections:
+                col.objects.unlink(self._original_obj)
+            self._scene_collection.objects.link(self._original_obj)
 
-        # 씬 컬렉션에 없으면 이동
-        if not is_original_in_scene_collection:
-            for col in original_collections:
-                col.objects.unlink(original_obj)
-            scene_collection.objects.link(original_obj)
-
-        new_collection = bpy.data.collections.new(original_obj_name)
-        context.scene.collection.children.link(new_collection)
+        self._new_collection = bpy.data.collections.new(self._original_obj.name)
+        self._scene_collection.children.link(self._new_collection)
 
         bpy.ops.object.select_all(action='DESELECT')
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
 
-        for i, (entry, name) in enumerate(drawindexed_map):
+    def modal(self, context, event):
+        if event.type == 'TIMER':
+            if self._index >= len(self._drawindexed_map):
+                bpy.ops.object.select_all(action='DESELECT')
+                self._original_obj.select_set(True)
+                bpy.ops.object.delete()
+
+                for col in self._original_collections:
+                    if col == self._scene_collection:
+                        continue
+                    if self._new_collection.name not in col.children:
+                        col.children.link(self._new_collection)
+                    if self._new_collection.name in self._scene_collection.children:
+                        self._scene_collection.children.unlink(self._new_collection)
+
+                context.window_manager.event_timer_remove(self._timer)
+                self.report({'INFO'}, f"{len(self._drawindexed_map)}개의 파츠 분리 완료")
+                return {'FINISHED'}
+
+            entry, name = self._drawindexed_map[self._index]
+            print(f"진행도: {self._index + 1}/{len(self._drawindexed_map)}")
+
             numbers = list(map(int, re.findall(r'\d+', entry)))
             if len(numbers) < 2:
-                continue
+                self._index += 1
+                return {'PASS_THROUGH'}
+
             index_count, start_index = numbers[:2]
 
-            original_obj.select_set(True)
-            context.view_layer.objects.active = original_obj
+            self._original_obj.select_set(True)
+            context.view_layer.objects.active = self._original_obj
             bpy.ops.object.duplicate()
             dup_obj = context.active_object
             mesh = dup_obj.data
@@ -172,11 +204,7 @@ class OT_SeparatePartsFromIni(Operator):
             bm.verts.ensure_lookup_table()
 
             for f in bm.faces:
-                f.select = False
-
-            for f in bm.faces:
-                if any(v.index in selected_indices for v in f.verts):
-                    f.select = True
+                f.select = any(v.index in selected_indices for v in f.verts)
 
             bmesh.update_edit_mesh(mesh)
             selected_face_count = sum(1 for f in bm.faces if f.select)
@@ -184,38 +212,23 @@ class OT_SeparatePartsFromIni(Operator):
             if selected_face_count == 0:
                 bpy.ops.object.mode_set(mode='OBJECT')
                 bpy.data.objects.remove(dup_obj)
-                continue
+                self._index += 1
+                return {'PASS_THROUGH'}
 
             bpy.ops.mesh.separate(type='SELECTED')
             bpy.ops.object.mode_set(mode='OBJECT')
 
             for obj in context.selected_objects:
                 if obj != dup_obj:
-                    new_collection.objects.link(obj)
-                    scene_collection.objects.unlink(obj)
+                    self._new_collection.objects.link(obj)
+                    self._scene_collection.objects.unlink(obj)
                     obj.name = name
 
             bpy.ops.object.select_all(action='DESELECT')
             dup_obj.select_set(True)
             bpy.ops.object.delete()
-
-        bpy.ops.object.select_all(action='DESELECT')
-        original_obj.select_set(True)
-        bpy.ops.object.delete()
-
-        # 새 컬렉션을 원래 컬렉션들의 하위 컬렉션으로 연결하되
-        # 씬 컬렉션은 건드리지 않음
-        for col in original_collections:
-            if col == scene_collection:
-                # 씬 컬렉션인 경우 아무 작업 안함
-                continue
-            if new_collection.name not in col.children:
-                col.children.link(new_collection)
-            if new_collection.name in scene_collection.children:
-                scene_collection.children.unlink(new_collection)
-
-        self.report({'INFO'}, f"{len(drawindexed_map)}개의 drawindexed로 분리 완료")
-        return {'FINISHED'}
+            self._index += 1
+        return {'PASS_THROUGH'}
 
 
 class PT_IBSectionSelector(Panel):
@@ -244,13 +257,13 @@ class PT_IBSectionSelector(Panel):
 
         row = layout.row()
         row.enabled = enable_button
-        row.operator("object.separate_parts_from_ini", text="파츠 분리")
+        row.operator("object.separate_parts_from_ini_modal", text="파츠 분리")
 
 
 classes = (
     INISectionProperties,
     OT_SelectIniFile,
-    OT_SeparatePartsFromIni,
+    OT_SeparatePartsFromIniModal,
     PT_IBSectionSelector,
 )
 
