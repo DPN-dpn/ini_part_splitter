@@ -1,7 +1,7 @@
 bl_info = {
     "name": "INI 기반 파츠 분리",
     "author": "OpenAI + DPN",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
     "description": "INI 파일을 기반으로 DrawIndexed 파츠를 오브젝트에서 분리합니다.",
@@ -76,7 +76,6 @@ class OT_SeparatePartsFromIni(Operator):
             self.report({'ERROR'}, "INI 파일과 섹션을 선택해야 합니다.")
             return {'CANCELLED'}
 
-        # 🔄 섹션별 라인 저장
         section_map = {}
         with open(ini_path, encoding='utf-8') as f:
             current_section = None
@@ -110,10 +109,8 @@ class OT_SeparatePartsFromIni(Operator):
                     last_comment = None
             return results
 
-        # 1. 직접적인 drawindexed
         drawindexed_map.extend(extract_drawindexed(section_map.get(section, [])))
 
-        # 2. run=CommandListXXX 추적
         for line in section_map.get(section, []):
             if line.lower().startswith("run"):
                 parts = line.split('=', 1)
@@ -132,6 +129,18 @@ class OT_SeparatePartsFromIni(Operator):
             return {'CANCELLED'}
 
         original_obj_name = original_obj.name
+        original_collections = list(original_obj.users_collection)
+        scene_collection = context.scene.collection
+
+        # 원래 컬렉션에 씬 컬렉션 포함 여부 체크
+        is_original_in_scene_collection = scene_collection in original_collections
+
+        # 씬 컬렉션에 없으면 이동
+        if not is_original_in_scene_collection:
+            for col in original_collections:
+                col.objects.unlink(original_obj)
+            scene_collection.objects.link(original_obj)
+
         new_collection = bpy.data.collections.new(original_obj_name)
         context.scene.collection.children.link(new_collection)
 
@@ -183,7 +192,7 @@ class OT_SeparatePartsFromIni(Operator):
             for obj in context.selected_objects:
                 if obj != dup_obj:
                     new_collection.objects.link(obj)
-                    context.scene.collection.objects.unlink(obj)
+                    scene_collection.objects.unlink(obj)
                     obj.name = name
 
             bpy.ops.object.select_all(action='DESELECT')
@@ -193,6 +202,17 @@ class OT_SeparatePartsFromIni(Operator):
         bpy.ops.object.select_all(action='DESELECT')
         original_obj.select_set(True)
         bpy.ops.object.delete()
+
+        # 새 컬렉션을 원래 컬렉션들의 하위 컬렉션으로 연결하되
+        # 씬 컬렉션은 건드리지 않음
+        for col in original_collections:
+            if col == scene_collection:
+                # 씬 컬렉션인 경우 아무 작업 안함
+                continue
+            if new_collection.name not in col.children:
+                col.children.link(new_collection)
+            if new_collection.name in scene_collection.children:
+                scene_collection.children.unlink(new_collection)
 
         self.report({'INFO'}, f"{len(drawindexed_map)}개의 drawindexed로 분리 완료")
         return {'FINISHED'}
