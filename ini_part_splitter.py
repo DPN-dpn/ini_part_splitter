@@ -1,7 +1,7 @@
 
 bl_info = {
     "name": "INI 기반 파츠 분리",
-    "author": "OpenAI + DPN",
+    "author": "DPN",
     "version": (1, 5),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
