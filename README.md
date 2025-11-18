@@ -25,7 +25,7 @@ XXMI용으로 제작된 멀티 토글 모드에서 추출된 모델 파일을 in
 ### 3. 애드온으로 추가된 '파츠 분리' 패널에서 'INI 파일 열기'로 ini 파일 지정
 <img width="285" height="435" alt="4" src="https://github.com/user-attachments/assets/929f14eb-987e-42de-948f-70e889b3e4d0" />
 
-### 4. IB 섹션 선택
+### 4. IB Resource 선택, 파츠 분리할 모델 선택 후 '파츠 분리' 버튼 클릭
 <img width="295" height="295" alt="5" src="https://github.com/user-attachments/assets/f89d12ba-71ba-431c-8cfd-0e89a099aee0" />
 
 ### 5. 잠시 기다린 후 분리 완료
