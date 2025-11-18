@@ -10,7 +10,7 @@ XXMI용으로 제작된 멀티 토글 모드에서 추출된 모델 파일을 in
 
 
 # 적용법
-<img width="662" height="552" alt="1" src="https://github.com/user-attachments/assets/aacb22c2-8508-4e07-9980-036def1f9893" />
+<img width="662" height="552" alt="1" src="https://github.com/user-attachments/assets/196cd622-11ce-4500-b217-9723aa57bfa6" />
 
 다운받은 파이선 코드를 블렌더에서 애드온 설치 후 활성화
 
@@ -26,7 +26,7 @@ XXMI용으로 제작된 멀티 토글 모드에서 추출된 모델 파일을 in
 <img width="285" height="435" alt="4" src="https://github.com/user-attachments/assets/929f14eb-987e-42de-948f-70e889b3e4d0" />
 
 ### 4. IB 섹션 선택
-<img width="295" height="295" alt="5" src="https://github.com/user-attachments/assets/35f81c3e-b590-42d2-824e-e2f88f6fbcfa" />
+<img width="295" height="295" alt="5" src="https://github.com/user-attachments/assets/f89d12ba-71ba-431c-8cfd-0e89a099aee0" />
 
 ### 5. 잠시 기다린 후 분리 완료
 <img width="309" height="398" alt="6" src="https://github.com/user-attachments/assets/c6872864-f72e-4d6a-bb5b-2559537980ff" />
