@@ -2,7 +2,7 @@
 bl_info = {
     "name": "INI 기반 파츠 분리",
     "author": "DPN",
-    "version": (1, 5),
+    "version": (1, 6),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
     "description": "INI 파일을 기반으로 DrawIndexed 파츠를 오브젝트에서 분리합니다.",
@@ -19,51 +19,98 @@ from bpy.props import StringProperty, EnumProperty, PointerProperty
 from bpy_extras.io_utils import ImportHelper
 
 
-class INISectionProperties(PropertyGroup):
-    ini_path: StringProperty(name="INI 파일 경로", default="")
-    _section_items = []
 
-    def section_items(self, context):
-        return self._section_items
 
-    section: EnumProperty(
-        name="IB 섹션",
-        items=lambda self, context: self.section_items(context)
-    )
+class INIResourceProperties(PropertyGroup):
+    _resource_items = []
+
+    def resource_items(self, context):
+        return self._resource_items
+
+
 
 
 class OT_SelectIniFile(Operator, ImportHelper):
     bl_idname = "wm.select_ini_file_panel"
     bl_label = "INI 파일 선택"
-    filter_glob: StringProperty(default="*.ini", options={'HIDDEN'})
+    # filter_glob은 execute 바깥에서 등록
 
     def execute(self, context):
-        props = context.scene.ini_section_props
+        props = context.scene.ini_resource_props
         props.ini_path = self.filepath
 
-        ib_sections = []
+        # INI 파일에서 TextureOverride 섹션 내 ib = 구문을 모두 찾아 Resource 목록 생성
+        resource_set = set()
         current_section = None
-        found_sections = set()
         with open(self.filepath, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith('[') and line.endswith(']'):
                     current_section = line[1:-1]
                 elif current_section and current_section.startswith("TextureOverride"):
-                    if line.lower().startswith("ib") and current_section not in found_sections:
-                        ib_sections.append((current_section, current_section, ""))
-                        found_sections.add(current_section)
+                    if line.lower().startswith("ib"):
+                        parts = line.split('=', 1)
+                        if len(parts) == 2:
+                            ib_name = parts[1].strip()
+                            if ib_name:
+                                resource_set.add(ib_name)
 
-        if not ib_sections:
-            self.report({'ERROR'}, "IB 섹션이 없습니다.")
+        resource_items = [(r, r, "") for r in sorted(resource_set)]
+        if not resource_items:
+            self.report({'ERROR'}, "TextureOverride 섹션에 ib = 구문이 없습니다.")
             return {'CANCELLED'}
 
-        INISectionProperties._section_items = ib_sections
-        props.section = ib_sections[0][0]
+        INIResourceProperties._resource_items = resource_items
+        props.resource = resource_items[0][0]
         return {'FINISHED'}
 
 
 class OT_SeparatePartsFromIniModal(Operator):
+    bl_idname = "object.separate_parts_from_ini_modal"
+    bl_label = "INI로 파츠 분리 (모달)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    _timer = None
+    _index = 0
+    _parts_map = []
+    _original_obj = None
+    _original_collections = []
+    _scene_collection = None
+    _new_collection = None
+
+    def find_sections_using_resource(self, section_map, resource_name):
+        """
+        TextureOverride 섹션 내 ib = 구문을 모두 파싱하여,
+        각 ib = 이후 다음 ib = 또는 섹션 끝까지 해당 Resource를 사용하는 구간을 반환
+        반환값: [(섹션명, start_line, end_line)]
+        """
+        result = []
+        for sec, lines in section_map.items():
+            if not sec.startswith("TextureOverride"):
+                continue
+            current_resource = None
+            start_idx = None
+            for idx, line in enumerate(lines):
+                l = line.strip()
+                if l.lower().startswith("ib"):
+                    parts = l.split('=', 1)
+                    if len(parts) == 2:
+                        ib_name = parts[1].strip()
+                        # 이전 리소스가 타겟이면 구간 종료
+                        if current_resource == resource_name and start_idx is not None:
+                            result.append((sec, start_idx, idx))
+                        # 새 리소스 시작
+                        if ib_name == resource_name:
+                            current_resource = ib_name
+                            start_idx = idx
+                        else:
+                            current_resource = ib_name
+                            start_idx = None
+            # 섹션 끝까지 타겟 리소스면 마지막까지
+            if current_resource == resource_name and start_idx is not None:
+                result.append((sec, start_idx, len(lines)))
+        return result
+
     bl_idname = "object.separate_parts_from_ini_modal"
     bl_label = "INI로 파츠 분리 (모달)"
     bl_options = {'REGISTER', 'UNDO'}
@@ -738,12 +785,12 @@ class OT_SeparatePartsFromIniModal(Operator):
             print("모든 파츠가 분리되어 잔여 부분 없음")
 
     def invoke(self, context, event):
-        props = context.scene.ini_section_props
+        props = context.scene.ini_resource_props
         ini_path = props.ini_path
-        section = props.section
+        resource = props.resource
 
-        if not ini_path or not section:
-            self.report({'ERROR'}, "INI 파일과 섹션을 선택해야 합니다.")
+        if not ini_path or not resource:
+            self.report({'ERROR'}, "INI 파일과 Resource를 선택해야 합니다.")
             return {'CANCELLED'}
 
         # INI 파일 파싱
@@ -760,21 +807,28 @@ class OT_SeparatePartsFromIniModal(Operator):
 
         # 전역 파츠 카운터 초기화
         self._global_part_counter = 1
-        
-        # INI 파일에서 DrawIndexed 정보 추출
-        ini_parts = self.extract_drawindexed_all(ini_path, section_map, section)
-        
-        # IB 파일 찾기 및 읽기
-        ib_path = self.find_ib_file(ini_path, section_map, section)
+
+        # TextureOverride 섹션 내에서 resource를 사용하는 구간(ib=~ 이후 ~)을 모두 찾음
+        target_ranges = self.find_sections_using_resource(section_map, resource)
+
+        ini_parts = []
+        ib_path = None
+        for sec, start, end in target_ranges:
+            # 해당 구간만 추출하여 DrawIndexed 파싱
+            lines = section_map[sec][start:end]
+            ini_parts.extend(self.extract_drawindexed_all(ini_path, {sec: lines}, sec))
+            # IB 파일 경로는 첫 구간에서만 사용
+            if ib_path is None:
+                ib_path = self.find_ib_file(ini_path, {sec: lines}, sec)
+
         ib_parts = []
-        
         if ib_path and os.path.exists(ib_path):
             print(f"IB 파일 발견: {ib_path}")
             ib_parts = self.read_ib_file(ib_path)
             print(f"IB 파일에서 {len(ib_parts)}개 파츠 발견")
         else:
             print("IB 파일을 찾을 수 없습니다. INI 파일의 정보만 사용합니다.")
-        
+
         # INI와 IB 파일의 파츠 정보 병합
         self._parts_map = self.merge_parts_info(ini_parts, ib_parts)
         
@@ -880,28 +934,30 @@ class OT_SeparatePartsFromIniModal(Operator):
         return {'PASS_THROUGH'}
 
 
-class PT_IBSectionSelector(Panel):
+
+
+class PT_IBResourceSelector(Panel):
     bl_label = "INI 파츠 분리"
-    bl_idname = "VIEW3D_PT_ib_section_selector"
+    bl_idname = "VIEW3D_PT_ib_resource_selector"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = '파츠 분리'
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.ini_section_props
+        props = context.scene.ini_resource_props
 
         layout.operator("wm.select_ini_file_panel", text="INI 파일 열기")
 
         if props.ini_path:
             layout.label(text=f"INI: {props.ini_path.split('/')[-1]}")
-            layout.prop(props, "section")
+            layout.prop(props, "resource")
 
         obj = context.active_object
         enable_button = (
             obj is not None and obj.type == 'MESH'
             and bool(props.ini_path.strip())
-            and bool(props.section.strip())
+            and bool(props.resource.strip())
         )
 
         row = layout.row()
@@ -909,24 +965,36 @@ class PT_IBSectionSelector(Panel):
         row.operator("object.separate_parts_from_ini_modal", text="파츠 분리")
 
 
+
+
 classes = (
-    INISectionProperties,
+    INIResourceProperties,
     OT_SelectIniFile,
     OT_SeparatePartsFromIniModal,
-    PT_IBSectionSelector,
+    PT_IBResourceSelector,
 )
+
+
 
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.ini_section_props = PointerProperty(type=INISectionProperties)
+    bpy.types.Scene.ini_resource_props = bpy.props.PointerProperty(type=INIResourceProperties)
+    INIResourceProperties.ini_path = bpy.props.StringProperty(name="INI 파일 경로", default="")
+    INIResourceProperties.resource = bpy.props.EnumProperty(
+        name="Resource(ib 파일명)",
+        items=lambda self, context: self.resource_items(context)
+    )
+    OT_SelectIniFile.filter_glob = bpy.props.StringProperty(default="*.ini", options={'HIDDEN'})
+
+
 
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-    del bpy.types.Scene.ini_section_props
+    del bpy.types.Scene.ini_resource_props
 
 
 if __name__ == "__main__":
