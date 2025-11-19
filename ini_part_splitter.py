@@ -2,12 +2,13 @@
 bl_info = {
     "name": "INI 기반 파츠 분리",
     "author": "DPN",
-    "version": (1, 6),
+    "version": (1, 6, 1),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
     "description": "INI 파일을 기반으로 DrawIndexed 파츠를 오브젝트에서 분리합니다.",
     "category": "Object"
 }
+
 
 import bpy
 import bmesh
@@ -17,6 +18,16 @@ import struct
 from bpy.types import Operator, Panel, PropertyGroup
 from bpy.props import StringProperty, EnumProperty, PointerProperty
 from bpy_extras.io_utils import ImportHelper
+
+# 디버그 로그 함수: 디버그 모드 체크 시 콘솔에 출력
+def log_debug(context, msg):
+    try:
+        props = getattr(context.scene, 'ini_resource_props', None)
+        if props and getattr(props, 'debug_mode', False):
+            print(f"[DEBUG] {msg}")
+    except Exception:
+        pass
+
 
 
 
@@ -79,6 +90,7 @@ class OT_SeparatePartsFromIniModal(Operator):
     _new_collection = None
 
     def find_sections_using_resource(self, section_map, resource_name):
+        log_debug(bpy.context, f"[find_sections_using_resource] resource_name={resource_name}")
         """
         TextureOverride 섹션 내 ib = 구문을 모두 파싱하여,
         각 ib = 이후 다음 ib = 또는 섹션 끝까지 해당 Resource를 사용하는 구간을 반환
@@ -124,6 +136,7 @@ class OT_SeparatePartsFromIniModal(Operator):
     _new_collection = None
 
     def read_ib_file(self, ib_path):
+        log_debug(bpy.context, f"[read_ib_file] ib_path={ib_path}")
         """IB 파일을 읽어서 모든 파츠 정보를 추출합니다."""
         parts_info = []
         try:
@@ -131,7 +144,6 @@ class OT_SeparatePartsFromIniModal(Operator):
                 f.seek(0, 2)  # 파일 끝으로 이동
                 file_size = f.tell()
                 f.seek(0)  # 파일 시작으로 이동
-                
                 # 16비트 또는 32비트 인덱스 자동 감지
                 if file_size % 4 == 0:
                     # 32비트 인덱스
@@ -142,12 +154,10 @@ class OT_SeparatePartsFromIniModal(Operator):
                     index_size = 2
                     format_char = '<H'  # Little-endian 16비트 unsigned short
                 else:
-                    print("알 수 없는 인덱스 형식입니다.")
+                    log_debug(bpy.context, "알 수 없는 인덱스 형식입니다.")
                     return parts_info
-                
                 index_count = file_size // index_size
-                print(f"IB 파일 분석: {index_count}개 인덱스 ({index_size*8}비트)")
-                
+                log_debug(bpy.context, f"IB 파일 분석: {index_count}개 인덱스 ({index_size*8}비트)")
                 # 인덱스 데이터를 읽습니다
                 indices = []
                 for i in range(index_count):
@@ -156,16 +166,14 @@ class OT_SeparatePartsFromIniModal(Operator):
                         break
                     index = struct.unpack(format_char, data)[0]
                     indices.append(index)
-                
                 # 다양한 방법으로 파츠 분리 시도
                 parts_info = self._analyze_ib_parts(indices)
-                            
         except Exception as e:
-            print(f"IB 파일 읽기 오류: {e}")
-            
+            log_debug(bpy.context, f"IB 파일 읽기 오류: {e}")
         return parts_info
 
     def _analyze_ib_parts(self, indices):
+        log_debug(bpy.context, f"[_analyze_ib_parts] indices count={len(indices)}")
         """인덱스 패턴을 분석하여 파츠를 분리합니다."""
         parts_info = []
         if not indices or len(indices) < 3:
@@ -376,16 +384,13 @@ class OT_SeparatePartsFromIniModal(Operator):
         for parts, method in candidates:
             if not parts:
                 continue
-                
             # 점수 계산: 적절한 파츠 수, 적절한 크기 분포
             score = self._evaluate_partitioning(parts, indices)
-            print(f"{method} 방법: {len(parts)}개 파츠, 점수: {score:.2f}")
-            
+            log_debug(bpy.context, f"{method} 방법: {len(parts)}개 파츠, 점수: {score:.2f}")
             if score > best_score:
                 best_score = score
                 best_parts = parts
                 best_method = method
-        
         # 모든 방법이 실패하면 전체를 하나의 파츠로
         if not best_parts:
             best_parts = [{
@@ -394,8 +399,7 @@ class OT_SeparatePartsFromIniModal(Operator):
                 'name': 'Complete_IB_Part'
             }]
             best_method = "Fallback"
-        
-        print(f"선택된 방법: {best_method}")
+        log_debug(bpy.context, f"선택된 방법: {best_method}")
         return best_parts
 
     def _evaluate_partitioning(self, parts, indices):
@@ -496,13 +500,13 @@ class OT_SeparatePartsFromIniModal(Operator):
         complete_parts = sorted(complete_parts, key=lambda x: x['start_index'])
         
         if missing_parts:
-            print(f"누락된 {len(missing_parts)}개 구간을 추가로 감지했습니다:")
+            log_debug(bpy.context, f"누락된 {len(missing_parts)}개 구간을 추가로 감지했습니다:")
             for part in missing_parts:
-                print(f"  {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}")
-        
+                log_debug(bpy.context, f"  {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}")
         return complete_parts
 
     def extract_drawindexed_all(self, ini_path, section_map, section):
+        log_debug(bpy.context, f"[extract_drawindexed_all] section={section}")
         """INI 파일에서 DrawIndexed 정보를 추출합니다."""
         drawindexed_map = []
         seen = set()
@@ -619,6 +623,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         return drawindexed_map
 
     def find_ib_file(self, ini_path, section_map, section):
+        log_debug(bpy.context, f"[find_ib_file] section={section}")
         """INI 파일에서 IB 파일 경로를 찾습니다."""
         ib_path = None
         
@@ -637,6 +642,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         return None
 
     def merge_parts_info(self, ini_parts, ib_parts):
+        log_debug(bpy.context, f"[merge_parts_info] ini_parts={len(ini_parts)}, ib_parts={len(ib_parts)}")
         """INI 파일의 파츠와 IB 파일의 파츠를 병합합니다."""
         merged_parts = []
         
@@ -644,7 +650,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         for part in ini_parts:
             merged_parts.append(part)
         
-        print(f"INI에서 {len(ini_parts)}개 파츠 추가됨")
+        log_debug(bpy.context, f"INI에서 {len(ini_parts)}개 파츠 추가됨")
         
         # IB 파일의 파츠 중 INI와 겹치지 않는 것들을 찾아 추가
         added_ib_parts = 0
@@ -674,7 +680,7 @@ class OT_SeparatePartsFromIniModal(Operator):
                 merged_parts.append(ib_part)
                 added_ib_parts += 1
         
-        print(f"IB에서 추가로 {added_ib_parts}개 파츠 추가됨")
+        log_debug(bpy.context, f"IB에서 추가로 {added_ib_parts}개 파츠 추가됨")
         
         # 파츠를 시작 인덱스 순으로 정렬
         merged_parts.sort(key=lambda x: x['start_index'])
@@ -682,7 +688,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         # 겹치는 파츠 제거 및 정리
         cleaned_parts = self._clean_overlapping_parts(merged_parts)
         
-        print(f"최종 {len(cleaned_parts)}개 파츠")
+        log_debug(bpy.context, f"최종 {len(cleaned_parts)}개 파츠")
         return cleaned_parts
 
     def _clean_overlapping_parts(self, parts):
@@ -722,6 +728,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         return cleaned
 
     def _create_remaining_part(self, context):
+        log_debug(context, "[_create_remaining_part] called")
         """분리된 파츠들을 제외한 나머지 부분을 잔여 파츠로 만듭니다."""
         bpy.ops.object.select_all(action='DESELECT')
         self._original_obj.select_set(True)
@@ -763,7 +770,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         
         bmesh.update_edit_mesh(mesh)
         
-        print(f"원본에서 {separated_face_count}개 면을 제거하여 잔여 파츠 생성")
+        log_debug(bpy.context, f"원본에서 {separated_face_count}개 면을 제거하여 잔여 파츠 생성")
         
         if separated_face_count > 0:
             # 선택된 면들(분리된 파츠들)을 삭제
@@ -778,13 +785,14 @@ class OT_SeparatePartsFromIniModal(Operator):
             self._original_obj.name = "remaining_original"
             self._new_collection.objects.link(self._original_obj)
             self._scene_collection.objects.unlink(self._original_obj)
-            print(f"잔여 파츠: {remaining_face_count}개 면 보존됨")
+            log_debug(bpy.context, f"잔여 파츠: {remaining_face_count}개 면 보존됨")
         else:
             # 잔여 부분이 없으면 원본 삭제
             bpy.ops.object.delete()
-            print("모든 파츠가 분리되어 잔여 부분 없음")
+            log_debug(bpy.context, "모든 파츠가 분리되어 잔여 부분 없음")
 
     def invoke(self, context, event):
+        log_debug(context, "[invoke] called")
         props = context.scene.ini_resource_props
         ini_path = props.ini_path
         resource = props.resource
@@ -795,6 +803,7 @@ class OT_SeparatePartsFromIniModal(Operator):
 
         # INI 파일 파싱
         section_map = {}
+        log_debug(context, f"[invoke] INI 파일 파싱 시작: {ini_path}")
         with open(ini_path, encoding='utf-8') as f:
             current_section = None
             for line in f:
@@ -804,6 +813,7 @@ class OT_SeparatePartsFromIniModal(Operator):
                     section_map[current_section] = []
                 elif current_section:
                     section_map[current_section].append(line)
+        log_debug(context, f"[invoke] INI 파싱 완료, 섹션 수: {len(section_map)}")
 
         # 전역 파츠 카운터 초기화
         self._global_part_counter = 1
@@ -823,11 +833,11 @@ class OT_SeparatePartsFromIniModal(Operator):
 
         ib_parts = []
         if ib_path and os.path.exists(ib_path):
-            print(f"IB 파일 발견: {ib_path}")
+            log_debug(context, f"IB 파일 발견: {ib_path}")
             ib_parts = self.read_ib_file(ib_path)
-            print(f"IB 파일에서 {len(ib_parts)}개 파츠 발견")
+            log_debug(context, f"IB 파일에서 {len(ib_parts)}개 파츠 발견")
         else:
-            print("IB 파일을 찾을 수 없습니다. INI 파일의 정보만 사용합니다.")
+            log_debug(context, "IB 파일을 찾을 수 없습니다. INI 파일의 정보만 사용합니다.")
 
         # INI와 IB 파일의 파츠 정보 병합
         self._parts_map = self.merge_parts_info(ini_parts, ib_parts)
@@ -836,9 +846,9 @@ class OT_SeparatePartsFromIniModal(Operator):
             self.report({'ERROR'}, "분리할 파츠가 없습니다.")
             return {'CANCELLED'}
         
-        print(f"총 {len(self._parts_map)}개 파츠를 분리합니다:")
+        log_debug(context, f"총 {len(self._parts_map)}개 파츠를 분리합니다:")
         for i, part in enumerate(self._parts_map):
-            print(f"  {i+1}. {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}")
+            log_debug(context, f"  {i+1}. {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}")
 
         self._original_obj = context.active_object
         if not self._original_obj or self._original_obj.type != 'MESH':
@@ -881,7 +891,7 @@ class OT_SeparatePartsFromIniModal(Operator):
                 return {'FINISHED'}
 
             part_info = self._parts_map[self._index]
-            print(f"진행도: {self._index + 1}/{len(self._parts_map)} - {part_info['name']}")
+            log_debug(context, f"진행도: {self._index + 1}/{len(self._parts_map)} - {part_info['name']}")
 
             index_count = part_info['index_count']
             start_index = part_info['start_index']
@@ -943,6 +953,7 @@ class PT_IBResourceSelector(Panel):
     bl_region_type = 'UI'
     bl_category = '파츠 분리'
 
+
     def draw(self, context):
         layout = self.layout
         props = context.scene.ini_resource_props
@@ -952,6 +963,9 @@ class PT_IBResourceSelector(Panel):
         if props.ini_path:
             layout.label(text=f"INI: {props.ini_path.split('/')[-1]}")
             layout.prop(props, "resource")
+
+        # 디버그 모드 체크박스 추가
+        layout.prop(props, "debug_mode")
 
         obj = context.active_object
         enable_button = (
@@ -977,14 +991,20 @@ classes = (
 
 
 
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.ini_resource_props = bpy.props.PointerProperty(type=INIResourceProperties)
     INIResourceProperties.ini_path = bpy.props.StringProperty(name="INI 파일 경로", default="")
     INIResourceProperties.resource = bpy.props.EnumProperty(
-        name="Resource(ib 파일명)",
+        name="IB",
         items=lambda self, context: self.resource_items(context)
+    )
+    INIResourceProperties.debug_mode = bpy.props.BoolProperty(
+        name="디버그 모드",
+        description="작업 단계별 디버그 로그를 출력합니다.",
+        default=False
     )
     OT_SelectIniFile.filter_glob = bpy.props.StringProperty(default="*.ini", options={'HIDDEN'})
 
