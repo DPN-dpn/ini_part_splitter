@@ -60,13 +60,14 @@ class OT_SelectIniFile(Operator, ImportHelper):
                 line = line.strip()
                 if line.startswith('[') and line.endswith(']'):
                     current_section = line[1:-1]
-                elif current_section and current_section.startswith("TextureOverride"):
-                    if line.lower().startswith("ib"):
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            ib_name = parts[1].strip()
-                            if ib_name:
-                                resource_set.add(ib_name)
+            INIResourceProperties._resource_items = resource_items
+            props.resource = resource_items[0][0]
+            # 패널 강제 갱신: 모든 3D 뷰 영역에 대해 tag_redraw
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        area.tag_redraw()
+            return {'FINISHED'}
 
         resource_items = [(r, r, "") for r in sorted(resource_set)]
         if not resource_items:
