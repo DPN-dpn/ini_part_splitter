@@ -1,9 +1,5 @@
 # 라이브러리 임포트
 import bpy
-import bmesh
-import re
-import os
-import struct
 from bpy.types import Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ImportHelper
 

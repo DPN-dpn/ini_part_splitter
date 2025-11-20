@@ -9,10 +9,11 @@ bl_info = {
     "category": "Object"
 }
 
-# Blender 및 파이썬 표준 라이브러리 임포트
+# 라이브러리 임포트
 import bpy
 from .source.parts_seperator import INIResourceProperties,PT_IBResourceSelector, OT_SelectIniFile, OT_SeparatePartsFromIniModal
 from .source.drawindexed import PT_DrawIndexedPanel, OT_SelectDrawIndexedMesh, OT_GetDrawIndexedFromSelection
+from .source.updater import PT_UpdaterPanel, OT_CheckUpdate, OT_DoUpdate, OT_OpenGithub
 
 # Blender에 등록할 클래스 목록
 classes = (
@@ -23,6 +24,10 @@ classes = (
     PT_DrawIndexedPanel,
     OT_SelectDrawIndexedMesh,
     OT_GetDrawIndexedFromSelection,
+    PT_UpdaterPanel,
+    OT_CheckUpdate,
+    OT_DoUpdate,
+    OT_OpenGithub,
 )
 
 # 애드온 등록 함수

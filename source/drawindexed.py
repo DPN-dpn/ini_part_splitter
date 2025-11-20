@@ -1,9 +1,5 @@
-# Blender 및 파이썬 표준 라이브러리 임포트
+# 라이브러리 임포트
 import bpy
-import bmesh
-import re
-import os
-import struct
 from bpy.types import Operator, Panel
 
 # DrawIndexed 패널 UI
