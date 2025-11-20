@@ -38,6 +38,8 @@ class INIResourceProperties(PropertyGroup):
     def resource_items(self, context):
         return self._resource_items
 
+    # drawindexed_start, drawindexed_count는 register에서 동적으로 할당
+
 
 
 
@@ -905,24 +907,40 @@ class OT_SeparatePartsFromIniModal(Operator):
 
             bpy.ops.object.mode_set(mode='OBJECT')
             index_buffer = []
+            poly_type_count = {}
             for poly in mesh.polygons:
+                poly_type_count[len(poly.vertices)] = poly_type_count.get(len(poly.vertices), 0) + 1
                 if len(poly.vertices) == 3:
                     index_buffer.extend(poly.vertices)
 
+            log_debug(context, f"[분리] 파츠: {name}, start_index={start_index}, index_count={index_count}, index_buffer_len={len(index_buffer)}")
+            log_debug(context, f"[분리] poly_type_count: {poly_type_count}")
+            slice_start = start_index
+            slice_end = start_index + index_count
+            log_debug(context, f"[분리] index_buffer[{slice_start}:{slice_end}] (len={slice_end-slice_start})")
+            log_debug(context, f"[분리] index_buffer slice head: {index_buffer[slice_start:slice_start+10] if slice_end > slice_start else []}")
+            log_debug(context, f"[분리] index_buffer slice tail: {index_buffer[max(slice_end-10,slice_start):slice_end] if slice_end > slice_start else []}")
+
             selected_indices = set(index_buffer[start_index:start_index + index_count])
+            log_debug(context, f"[분리] selected_indices 샘플: {list(selected_indices)[:10]} ... (총 {len(selected_indices)}개)")
 
             bpy.ops.object.mode_set(mode='EDIT')
             bm = bmesh.from_edit_mesh(mesh)
             bm.faces.ensure_lookup_table()
             bm.verts.ensure_lookup_table()
 
+            face_select_count = 0
             for f in bm.faces:
                 f.select = any(v.index in selected_indices for v in f.verts)
+                if f.select:
+                    face_select_count += 1
+            log_debug(context, f"[분리] 선택된 face 개수: {face_select_count} / 전체 {len(bm.faces)}")
 
             bmesh.update_edit_mesh(mesh)
             selected_face_count = sum(1 for f in bm.faces if f.select)
 
             if selected_face_count == 0:
+                log_debug(context, f"[분리] 선택된 face 없음, 파츠 건너뜀")
                 bpy.ops.object.mode_set(mode='OBJECT')
                 bpy.data.objects.remove(dup_obj)
                 self._index += 1
@@ -936,6 +954,7 @@ class OT_SeparatePartsFromIniModal(Operator):
                     self._new_collection.objects.link(obj)
                     self._scene_collection.objects.unlink(obj)
                     obj.name = name
+                    log_debug(context, f"[분리] 분리된 오브젝트: {obj.name}, faces: {len(obj.data.polygons)}")
 
             bpy.ops.object.select_all(action='DESELECT')
             dup_obj.select_set(True)
@@ -964,7 +983,7 @@ class PT_IBResourceSelector(Panel):
             layout.label(text=f"INI: {props.ini_path.split('/')[-1]}")
             layout.prop(props, "resource")
 
-        # 디버그 모드 체크박스 추가
+        # 디버그 모드 체크박스만 남김
         layout.prop(props, "debug_mode")
 
         obj = context.active_object
@@ -978,6 +997,180 @@ class PT_IBResourceSelector(Panel):
         row.enabled = enable_button
         row.operator("object.separate_parts_from_ini_modal", text="파츠 분리")
 
+        # 디버그 DrawIndexed 패널은 별도 패널로 이동
+
+# DrawIndexed 디버그 패널(항상 표시)
+class PT_DrawIndexedDebugPanel(Panel):
+    bl_label = "DrawIndexed"
+    bl_idname = "VIEW3D_PT_drawindexed_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = '파츠 분리'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.ini_resource_props
+        box = layout.box()
+        box.label(text="drawIndexed = ")
+        row = box.row(align=True)
+        col_count = row.column()
+        col_count.scale_x = 2.0
+        col_count.prop(props, "drawindexed_count", text="", slider=False)
+        col_comma1 = row.column()
+        col_comma1.scale_x = 0.15
+        col_comma1.label(text=",", icon='BLANK1')
+        col_start = row.column()
+        col_start.scale_x = 2.0
+        col_start.prop(props, "drawindexed_start", text="", slider=False)
+        col_comma2 = row.column()
+        col_comma2.scale_x = 0.15
+        col_comma2.label(text=",", icon='BLANK1')
+        col_zero = row.column()
+        col_zero.scale_x = 0.2
+        col_zero.label(text="0")
+        box.operator("object.select_drawindexed_mesh", text="매쉬 선택")
+        box.operator("object.get_drawindexed_from_selection", text="drawIndexed 추출")
+class OT_GetDrawIndexedFromSelection(Operator):
+    bl_idname = "object.get_drawindexed_from_selection"
+    bl_label = "선택된 매쉬로 DrawIndexed 값 추출"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.ini_resource_props
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "메시 오브젝트를 선택하세요.")
+            return {'CANCELLED'}
+
+        mesh = obj.data
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+
+        # 인덱스 버퍼 추출 (삼각형만)
+        index_buffer = []
+        for poly in mesh.polygons:
+            if len(poly.vertices) == 3:
+                index_buffer.extend(poly.vertices)
+
+        # 선택된 face의 인덱스 버퍼 내 범위 찾기
+        selected_faces = [f for f in bm.faces if f.select]
+        if not selected_faces:
+            self.report({'ERROR'}, "선택된 face가 없습니다.")
+            return {'CANCELLED'}
+
+        # 선택된 face들의 index_buffer 순서대로 인덱스 추출
+        face_indices_list = []
+        for f in selected_faces:
+            for v in f.verts:
+                face_indices_list.append(v.index)
+
+        # 실제 DrawIndexed는 index_buffer의 연속된 삼각형(3개 단위) 슬라이스와 일치해야 함
+        # Blender에서 임의로 선택된 face들은 index_buffer 상에서 여러 블록으로 흩어질 수 있으므로,
+        # index_buffer를 삼각형 단위(3개씩)로 나누고, 선택된 face의 인덱스 집합과 일치하는 삼각형 블록을 모두 찾는다.
+        face_indices_set = set(face_indices_list)
+        tris = [index_buffer[i:i+3] for i in range(0, len(index_buffer), 3)]
+        selected_tri_indices = set(tuple(sorted([v.index for v in f.verts])) for f in selected_faces)
+
+        # index_buffer에서 선택된 face와 일치하는 삼각형 블록의 시작 인덱스(슬라이스) 찾기
+        tri_blocks = []
+        for i, tri in enumerate(tris):
+            tri_set = set(tri)
+            # 삼각형이 선택된 face의 버텍스 인덱스와 정확히 일치하는지 확인
+            if tuple(sorted(tri)) in selected_tri_indices:
+                tri_blocks.append(i)
+
+        # 연속된 삼각형 블록을 묶어서 DrawIndexed 슬라이스로 변환
+        if not tri_blocks:
+            self.report({'ERROR'}, "선택된 face와 일치하는 삼각형을 index_buffer에서 찾지 못했습니다.")
+            return {'CANCELLED'}
+
+        # 연속 구간으로 묶기
+        block_ranges = []
+        block_start = tri_blocks[0]
+        prev = tri_blocks[0]
+        for idx in tri_blocks[1:]:
+            if idx == prev + 1:
+                prev = idx
+            else:
+                block_ranges.append((block_start, prev))
+                block_start = idx
+                prev = idx
+        block_ranges.append((block_start, prev))
+
+        # DrawIndexed 슬라이스 정보로 변환 (start, count)
+        block_infos = []
+        for start_tri, end_tri in block_ranges:
+            start_idx = start_tri * 3
+            count = (end_tri - start_tri + 1) * 3
+            block_infos.append({'start': start_idx, 'count': count})
+
+        # UI에는 첫 번째 블록만 입력, 메시지로 전체 블록 안내
+        if block_infos:
+            props.drawindexed_start = block_infos[0]['start']
+            props.drawindexed_count = block_infos[0]['count']
+            msg_lines = []
+            for i, info in enumerate(block_infos):
+                msg = f"DrawIndexed 블록 {i+1}: count={info['count']}, start={info['start']}"
+                msg_lines.append(msg)
+            self.report({'INFO'}, "선택된 face를 DrawIndexed로 변환 결과:\n" + "\n".join(msg_lines))
+        else:
+            self.report({'ERROR'}, "선택된 face를 DrawIndexed로 변환할 수 없습니다.")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+class OT_SelectDrawIndexedMesh(Operator):
+    bl_idname = "object.select_drawindexed_mesh"
+    bl_label = "DrawIndexed 매쉬 선택"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.ini_resource_props
+        start = props.drawindexed_start
+        count = props.drawindexed_count
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "메시 오브젝트를 선택하세요.")
+            return {'CANCELLED'}
+
+        mesh = obj.data
+        # 인덱스 버퍼 추출 (삼각형만)
+        index_buffer = []
+        for poly in mesh.polygons:
+            if len(poly.vertices) == 3:
+                index_buffer.extend(poly.vertices)
+
+        if start < 0 or start + count > len(index_buffer):
+            self.report({'ERROR'}, f"범위가 잘못되었습니다. (0~{len(index_buffer)})")
+            return {'CANCELLED'}
+
+        selected_indices = set(index_buffer[start:start+count])
+
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+
+        select_count = 0
+        face_indices = []
+        for f in bm.faces:
+            if any(v.index in selected_indices for v in f.verts):
+                f.select = True
+                select_count += 1
+                face_indices.extend([v.index for v in f.verts])
+            else:
+                f.select = False
+        bmesh.update_edit_mesh(mesh)
+
+        # 디버그: index_buffer 슬라이스와 실제 선택된 face의 인덱스 집합 비교
+        face_indices_set = set(face_indices)
+        only_selected = selected_indices.issubset(face_indices_set) and face_indices_set.issubset(selected_indices)
+        if not only_selected:
+            self.report({'WARNING'}, f"[디버그] index_buffer[{start}:{start+count}]의 인덱스와 실제 선택된 face의 인덱스가 완전히 일치하지 않습니다.\nindex_buffer 슬라이스 인덱스 수: {len(selected_indices)}, 선택된 face의 인덱스 수: {len(face_indices_set)}")
+        self.report({'INFO'}, f"{select_count}개 face 선택 완료")
+        return {'FINISHED'}
+
 
 
 
@@ -986,6 +1179,9 @@ classes = (
     OT_SelectIniFile,
     OT_SeparatePartsFromIniModal,
     PT_IBResourceSelector,
+    PT_DrawIndexedDebugPanel,
+    OT_SelectDrawIndexedMesh,
+    OT_GetDrawIndexedFromSelection,
 )
 
 
@@ -1005,6 +1201,22 @@ def register():
         name="디버그 모드",
         description="작업 단계별 디버그 로그를 출력합니다.",
         default=False
+    )
+    INIResourceProperties.drawindexed_start = bpy.props.IntProperty(
+        name="DrawIndexed Start",
+        description="DrawIndexed의 start_index",
+        default=0,
+        min=0,
+        max=1000000000,
+        step=1
+    )
+    INIResourceProperties.drawindexed_count = bpy.props.IntProperty(
+        name="DrawIndexed Count",
+        description="DrawIndexed의 index_count",
+        default=0,
+        min=0,
+        max=1000000000,
+        step=1
     )
     OT_SelectIniFile.filter_glob = bpy.props.StringProperty(default="*.ini", options={'HIDDEN'})
 
