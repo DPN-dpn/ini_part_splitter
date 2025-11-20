@@ -6,7 +6,7 @@ bl_info = {
     "version": (1, 6, 1),
     "blender": (2, 93, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
-    "description": "INI 파일을 기반으로 DrawIndexed 파츠를 오브젝트에서 분리합니다.",
+    "description": "INI의 DrawIndexed 값을 기반으로 오브젝트에서 파츠를 분리합니다.",
     "category": "Object"
 }
 
@@ -43,6 +43,7 @@ class INIResourceProperties(PropertyGroup):
 class OT_SelectIniFile(Operator, ImportHelper):
     bl_idname = "wm.select_ini_file_panel"
     bl_label = "INI 파일 선택"
+    bl_description = "INI 파일을 선택하고 리소스를 불러옵니다"
     # filter_glob은 execute 바깥에서 등록
 
     def execute(self, context):
@@ -83,10 +84,11 @@ class OT_SelectIniFile(Operator, ImportHelper):
                     area.tag_redraw()
         return {'FINISHED'}
 
-# INI와 IB 파일을 기반으로 파츠를 분리하는 메인 오퍼레이터 (모달)
+# INI와 IB 파일을 기반으로 파츠를 분리하는 메인 오퍼레이터
 class OT_SeparatePartsFromIniModal(Operator):
     bl_idname = "object.separate_parts_from_ini_modal"
-    bl_label = "INI로 파츠 분리 (모달)"
+    bl_label = "파츠 분리"
+    bl_description = "선택된 INI와 IB를 기반으로 선택된 오브젝트에서 파츠를 분리합니다"
     bl_options = {'REGISTER', 'UNDO'}
 
     _timer = None
@@ -100,11 +102,6 @@ class OT_SeparatePartsFromIniModal(Operator):
     # 특정 리소스를 사용하는 TextureOverride 섹션 구간 찾기
     def find_sections_using_resource(self, section_map, resource_name):
         log_debug(bpy.context, f"[find_sections_using_resource] resource_name={resource_name}")
-        """
-        TextureOverride 섹션 내 ib = 구문을 모두 파싱하여,
-        각 ib = 이후 다음 ib = 또는 섹션 끝까지 해당 Resource를 사용하는 구간을 반환
-        반환값: [(섹션명, start_line, end_line)]
-        """
         result = []
         for sec, lines in section_map.items():
             if not sec.startswith("TextureOverride"):
@@ -133,21 +130,8 @@ class OT_SeparatePartsFromIniModal(Operator):
                 result.append((sec, start_idx, len(lines)))
         return result
 
-    bl_idname = "object.separate_parts_from_ini_modal"
-    bl_label = "INI로 파츠 분리 (모달)"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    _timer = None
-    _index = 0
-    _parts_map = []
-    _original_obj = None
-    _original_collections = []
-    _scene_collection = None
-    _new_collection = None
-
-
     # INI에서 DrawIndexed 정보 추출
-    def extract_drawindexed_all(self, ini_path, section_map, section):
+    def extract_drawindexed_all(self, section_map, section):
         log_debug(bpy.context, f"[extract_drawindexed_all] section={section}")
 
         drawindexed_map = []
@@ -411,6 +395,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         # 2. INI 파일을 파싱하여 섹션별로 저장
         section_map = {}
         log_debug(context, f"[invoke] INI 파일 파싱 시작: {ini_path}")
+        bpy.ops.object.mode_set(mode='OBJECT')
         with open(ini_path, encoding='utf-8') as f:
             current_section = None
             for line in f:
@@ -433,7 +418,7 @@ class OT_SeparatePartsFromIniModal(Operator):
         ini_parts = []
         for sec, start, end in target_ranges:
             lines = section_map[sec][start:end]
-            ini_parts.extend(self.extract_drawindexed_all(ini_path, {sec: lines}, sec))
+            ini_parts.extend(self.extract_drawindexed_all({sec: lines}, sec))
 
         # 6. INI 파츠 정보만 사용 (merge_parts_info 제거)
         self._parts_map = ini_parts.copy()
@@ -656,7 +641,8 @@ class PT_DrawIndexedDebugPanel(Panel):
 # 선택된 face로부터 DrawIndexed 값 추출 오퍼레이터
 class OT_GetDrawIndexedFromSelection(Operator):
     bl_idname = "object.get_drawindexed_from_selection"
-    bl_label = "선택된 매쉬로 DrawIndexed 값 추출"
+    bl_label = "drawIndexed 추출"
+    bl_description = "선택된 face로부터 drawIndexed 값을 추출합니다"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -743,7 +729,8 @@ class OT_GetDrawIndexedFromSelection(Operator):
 # DrawIndexed 값으로 face 선택 오퍼레이터
 class OT_SelectDrawIndexedMesh(Operator):
     bl_idname = "object.select_drawindexed_mesh"
-    bl_label = "DrawIndexed 매쉬 선택"
+    bl_label = "매쉬 선택"
+    bl_description = "drawIndexed 값에 해당하는 face를 오브젝트에서 선택합니다"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -819,19 +806,24 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.ini_resource_props = bpy.props.PointerProperty(type=INIResourceProperties)
-    INIResourceProperties.ini_path = bpy.props.StringProperty(name="INI 파일 경로", default="")
+    INIResourceProperties.ini_path = bpy.props.StringProperty(
+        name="INI 파일 경로",
+        description="선택된 INI 파일의 경로입니다",
+        default=""
+    )
     INIResourceProperties.resource = bpy.props.EnumProperty(
         name="IB",
+        description="파츠를 분리할 IB의 리소스 이름입니다",
         items=lambda self, context: self.resource_items(context)
     )
     INIResourceProperties.debug_mode = bpy.props.BoolProperty(
         name="디버그 모드",
-        description="작업 단계별 디버그 로그를 출력합니다.",
+        description="작업 단계별 디버그 로그를 콘솔에 출력합니다.\n창-시스템 콘솔에서 확인할 수 있습니다",
         default=False
     )
     INIResourceProperties.drawindexed_start = bpy.props.IntProperty(
         name="DrawIndexed Start",
-        description="DrawIndexed의 start_index",
+        description="drawindexed = ???, ???, 0 형식에서 두 번째 값",
         default=0,
         min=0,
         max=1000000000,
@@ -839,7 +831,7 @@ def register():
     )
     INIResourceProperties.drawindexed_count = bpy.props.IntProperty(
         name="DrawIndexed Count",
-        description="DrawIndexed의 index_count",
+        description="drawindexed = ???, ???, 0 형식에서 첫 번째 값",
         default=0,
         min=0,
         max=1000000000,
