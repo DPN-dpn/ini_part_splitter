@@ -82,15 +82,13 @@ class OT_DoUpdate(Operator):
 
             # 다운로드 경로 설정
             addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            print(addon_dir)
             addons_dir = os.path.dirname(addon_dir)
-            print(addons_dir)
             zip_path = os.path.join(addons_dir, "ini_part_splitter_update.zip")
 
             # zip 파일 다운로드
             urllib.request.urlretrieve(zip_url, zip_path)
 
-            # 폴더 비우기
+            # 폴더 삭제
             for filename in os.listdir(addon_dir):
                 file_path = os.path.join(addon_dir, filename)
                 try:
@@ -103,7 +101,7 @@ class OT_DoUpdate(Operator):
 
             # zip 파일 압축 해제 (애드온 폴더에 덮어쓰기)
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(addon_dir)
+                zip_ref.extractall(addons_dir)
 
             # zip 파일 삭제
             os.remove(zip_path)
