@@ -21,6 +21,11 @@ class OT_SelectIniFile(Operator, ImportHelper):
     bl_idname = "wm.select_ini_file_panel"
     bl_label = "INI 파일 선택"
     bl_description = "INI 파일을 선택하고 리소스를 불러옵니다"
+    filename_ext = ".ini"
+    filter_glob: bpy.props.StringProperty(
+        default="*.ini",
+        options={"HIDDEN"},
+    )
 
     def execute(self, context):
         props = context.scene.parts_seperator_props
