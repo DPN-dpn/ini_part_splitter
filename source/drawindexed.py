@@ -212,22 +212,7 @@ class PT_DrawIndexedPanel(Panel):
 
 # drawindexed에서 사용할 프로퍼티 그룹
 class DrawindexedProperties(PropertyGroup):
-    drawindexed_start = bpy.props.IntProperty(
-        name="DrawIndexed Start",
-        description="drawindexed = ???, ???, 0 형식에서 두 번째 값",
-        default=0,
-        min=0,
-        max=1000000000,
-        step=1,
-    )
-    drawindexed_count = bpy.props.IntProperty(
-        name="DrawIndexed Count",
-        description="drawindexed = ???, ???, 0 형식에서 첫 번째 값",
-        default=0,
-        min=0,
-        max=1000000000,
-        step=1,
-    )
+    _temp = None
 
 
 # 애드온 등록 함수
@@ -235,6 +220,22 @@ def register_drawindexed():
     for cls in classes:
         bpy.utils.register_class(cls)
     Scene.drawindexed_props = bpy.props.PointerProperty(type=DrawindexedProperties)
+    DrawindexedProperties.drawindexed_start = bpy.props.IntProperty(
+        name="DrawIndexed Start",
+        description="drawindexed = ???, ???, 0 형식에서 두 번째 값",
+        default=0,
+        min=0,
+        max=1000000000,
+        step=1,
+    )
+    DrawindexedProperties.drawindexed_count = bpy.props.IntProperty(
+        name="DrawIndexed Count",
+        description="drawindexed = ???, ???, 0 형식에서 첫 번째 값",
+        default=0,
+        min=0,
+        max=1000000000,
+        step=1,
+    )
 
 
 # 애드온 해제 함수
