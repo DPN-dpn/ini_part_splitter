@@ -1,34 +1,29 @@
 # 라이브러리 임포트
 import bpy
-from bpy.types import Operator, Panel, PropertyGroup
+import bmesh
+import re
+from bpy.types import Operator, Panel, PropertyGroup, Scene
 from bpy_extras.io_utils import ImportHelper
+
 
 # 디버그 로그 함수: 디버그 모드일 때만 출력
 def log_debug(context, msg):
     try:
-        props = getattr(context.scene, 'ini_resource_props', None)
-        if props and getattr(props, 'debug_mode', False):
+        props = getattr(context.scene, "parts_seperator_props", None)
+        if props and getattr(props, "debug_mode", False):
             print(f"[DEBUG] {msg}")
     except Exception:
         pass
 
-# 애드온에서 사용할 커스텀 프로퍼티 그룹
-class INIResourceProperties(PropertyGroup):
-    _resource_items = []
-
-    def resource_items(self, context):
-        return self._resource_items
-    # drawindexed_start, drawindexed_count는 register에서 동적으로 할당
 
 # INI 파일 선택 및 파싱 오퍼레이터
 class OT_SelectIniFile(Operator, ImportHelper):
     bl_idname = "wm.select_ini_file_panel"
     bl_label = "INI 파일 선택"
     bl_description = "INI 파일을 선택하고 리소스를 불러옵니다"
-    # filter_glob은 execute 바깥에서 등록
 
     def execute(self, context):
-        props = context.scene.ini_resource_props
+        props = context.scene.parts_seperator_props
         # 1. 선택한 INI 파일 경로 저장
         props.ini_path = self.filepath
 
@@ -39,11 +34,15 @@ class OT_SelectIniFile(Operator, ImportHelper):
             for line in f:
                 line = line.strip()
                 # 2-1. 섹션명 감지
-                if line.startswith('[') and line.endswith(']'):
+                if line.startswith("[") and line.endswith("]"):
                     current_section = line[1:-1]
                 # 2-2. TextureOverride 섹션 내 ib = 구문 추출
-                elif current_section and current_section.startswith('TextureOverride') and line.lower().startswith('ib'):
-                    parts = line.split('=', 1)
+                elif (
+                    current_section
+                    and current_section.startswith("TextureOverride")
+                    and line.lower().startswith("ib")
+                ):
+                    parts = line.split("=", 1)
                     if len(parts) == 2:
                         ib_name = parts[1].strip()
                         resource_set.add(ib_name)
@@ -51,26 +50,27 @@ class OT_SelectIniFile(Operator, ImportHelper):
         # 3. Resource 목록이 없으면 에러 리포트
         resource_items = [(r, r, "") for r in sorted(resource_set)]
         if not resource_items:
-            self.report({'ERROR'}, "TextureOverride 섹션에 ib = 구문이 없습니다.")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, "TextureOverride 섹션에 ib = 구문이 없습니다.")
+            return {"CANCELLED"}
 
         # 4. Resource 목록을 프로퍼티에 저장
-        INIResourceProperties._resource_items = resource_items
+        PartsSeperatorProperties._resource_items = resource_items
         props.resource = resource_items[0][0]
 
         # 5. 패널 강제 갱신: 모든 3D 뷰 영역에 대해 tag_redraw
         for window in context.window_manager.windows:
             for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
+                if area.type == "VIEW_3D":
                     area.tag_redraw()
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 # INI와 IB 파일을 기반으로 파츠를 분리하는 메인 오퍼레이터
 class OT_SeparatePartsFromIniModal(Operator):
     bl_idname = "object.separate_parts_from_ini_modal"
     bl_label = "파츠 분리"
     bl_description = "선택된 INI와 IB를 기반으로 선택된 오브젝트에서 파츠를 분리합니다"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     _timer = None
     _index = 0
@@ -82,7 +82,9 @@ class OT_SeparatePartsFromIniModal(Operator):
 
     # 특정 리소스를 사용하는 TextureOverride 섹션 구간 찾기
     def find_sections_using_resource(self, section_map, resource_name):
-        log_debug(bpy.context, f"[find_sections_using_resource] resource_name={resource_name}")
+        log_debug(
+            bpy.context, f"[find_sections_using_resource] resource_name={resource_name}"
+        )
         result = []
         for sec, lines in section_map.items():
             if not sec.startswith("TextureOverride"):
@@ -93,7 +95,7 @@ class OT_SeparatePartsFromIniModal(Operator):
                 l = line.strip()
                 # 1. ib= 구문을 만나면 리소스명 추출
                 if l.lower().startswith("ib"):
-                    parts = l.split('=', 1)
+                    parts = l.split("=", 1)
                     if len(parts) == 2:
                         ib_name = parts[1].strip()
                         # 2. 이전 리소스가 타겟이면 구간 종료
@@ -122,16 +124,16 @@ class OT_SeparatePartsFromIniModal(Operator):
         def extract_drawindexed(lines):
             nonlocal seen, last_comment
             results = []
-            
+
             # 1단계: 모든 DrawIndexed와 해당 주석을 수집
             temp_results = []
             comment_stack = []  # IF문의 중첩 레벨별 주석을 저장
             if_depth = 0
-            
+
             for i, line in enumerate(lines):
                 stripped_line = line.strip()
-                
-                if stripped_line.startswith(';'):
+
+                if stripped_line.startswith(";"):
                     comment_match = re.match(r";\s*([^\(]+)", stripped_line)
                     if comment_match:
                         new_comment = comment_match.group(1).strip()
@@ -145,26 +147,26 @@ class OT_SeparatePartsFromIniModal(Operator):
                         else:
                             # IF 블록 외부의 주석 - 다음 IF 블록을 위해 저장
                             comment_stack = [new_comment]
-                
+
                 elif stripped_line.lower().startswith("if"):
                     if_depth += 1
                     # 새로운 IF 블록 시작 - 주석 스택 확장
                     if len(comment_stack) < if_depth:
                         comment_stack.append(None)
-                    
+
                 elif stripped_line.lower().startswith("endif"):
                     if_depth -= 1
                     # IF 블록 종료 - 해당 레벨의 주석 제거
                     if len(comment_stack) > if_depth:
                         comment_stack = comment_stack[:if_depth] if if_depth > 0 else []
-                
+
                 elif stripped_line.lower().startswith("drawindexed"):
-                    parts = stripped_line.split('=', 1)
+                    parts = stripped_line.split("=", 1)
                     if len(parts) == 2:
                         value = parts[1].strip()
                         if re.match(r"^\d+,\s*\d+,\s*0$", value) and value not in seen:
                             seen.add(value)
-                            numbers = list(map(int, re.findall(r'\d+', value)))
+                            numbers = list(map(int, re.findall(r"\d+", value)))
                             if len(numbers) >= 2:
                                 # 가장 구체적인 주석 선택 (가장 안쪽 블록의 주석)
                                 effective_comment = None
@@ -172,31 +174,37 @@ class OT_SeparatePartsFromIniModal(Operator):
                                     if comment_stack[j]:
                                         effective_comment = comment_stack[j]
                                         break
-                                
-                                temp_results.append({
-                                    'start_index': numbers[1],
-                                    'index_count': numbers[0],
-                                    'comment': effective_comment,
-                                    'if_depth': if_depth
-                                })
-                
+
+                                temp_results.append(
+                                    {
+                                        "start_index": numbers[1],
+                                        "index_count": numbers[0],
+                                        "comment": effective_comment,
+                                        "if_depth": if_depth,
+                                    }
+                                )
+
                 # 다른 구문이 나오면 현재 레벨의 주석 리셋 (IF 블록 외부에서만)
-                elif if_depth == 0 and not stripped_line.startswith(';') and stripped_line:
+                elif (
+                    if_depth == 0
+                    and not stripped_line.startswith(";")
+                    and stripped_line
+                ):
                     comment_stack = []
-            
+
             # 2단계: 같은 주석을 가진 항목들을 그룹화하고 네이밍
             comment_groups = {}
             for item in temp_results:
-                comment = item['comment']
+                comment = item["comment"]
                 if comment:
                     if comment not in comment_groups:
                         comment_groups[comment] = []
                     comment_groups[comment].append(item)
-            
+
             # 3단계: 최종 결과 생성
             for item in temp_results:
-                if item['comment']:
-                    comment = item['comment']
+                if item["comment"]:
+                    comment = item["comment"]
                     group = comment_groups[comment]
                     if len(group) == 1:
                         # 단일 DrawIndexed면 넘버링 없이
@@ -209,20 +217,22 @@ class OT_SeparatePartsFromIniModal(Operator):
                     # 주석이 없는 경우
                     part_name = f"part_{self._global_part_counter}"
                     self._global_part_counter += 1
-                
-                results.append({
-                    'start_index': item['start_index'],
-                    'index_count': item['index_count'],
-                    'name': part_name
-                })
-            
+
+                results.append(
+                    {
+                        "start_index": item["start_index"],
+                        "index_count": item["index_count"],
+                        "name": part_name,
+                    }
+                )
+
             return results
 
         drawindexed_map.extend(extract_drawindexed(section_map.get(section, [])))
 
         for line in section_map.get(section, []):
             if line.lower().startswith("run"):
-                parts = line.split('=', 1)
+                parts = line.split("=", 1)
                 if len(parts) == 2:
                     target = parts[1].strip()
                     if target in section_map:
@@ -234,12 +244,12 @@ class OT_SeparatePartsFromIniModal(Operator):
         log_debug(context, "[_create_remaining_part] called")
 
         # 1. 모든 오브젝트 선택 해제 후 원본 오브젝트만 선택
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
         self._original_obj.select_set(True)
         context.view_layer.objects.active = self._original_obj
 
         # 2. 원본 오브젝트를 OBJECT 모드로 전환
-        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.mode_set(mode="OBJECT")
         mesh = self._original_obj.data
 
         # 3. 분리된 파츠의 모든 인덱스를 수집할 집합 준비
@@ -253,14 +263,16 @@ class OT_SeparatePartsFromIniModal(Operator):
 
         # 5. 각 파츠의 인덱스 범위를 집합에 추가
         for part_info in self._parts_map:
-            start_index = part_info['start_index']
-            index_count = part_info['index_count']
+            start_index = part_info["start_index"]
+            index_count = part_info["index_count"]
             if start_index + index_count <= len(index_buffer):
-                part_indices = set(index_buffer[start_index:start_index + index_count])
+                part_indices = set(
+                    index_buffer[start_index : start_index + index_count]
+                )
                 all_separated_indices.update(part_indices)
 
         # 6. EDIT 모드로 전환 후 분리된 파츠에 해당하는 면 선택
-        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.object.mode_set(mode="EDIT")
         bm = bmesh.from_edit_mesh(mesh)
         bm.faces.ensure_lookup_table()
         bm.verts.ensure_lookup_table()
@@ -274,13 +286,16 @@ class OT_SeparatePartsFromIniModal(Operator):
 
         bmesh.update_edit_mesh(mesh)
 
-        log_debug(bpy.context, f"원본에서 {separated_face_count}개 면을 제거하여 잔여 파츠 생성")
+        log_debug(
+            bpy.context,
+            f"원본에서 {separated_face_count}개 면을 제거하여 잔여 파츠 생성",
+        )
 
         # 8. 분리된 파츠가 있으면 해당 면 삭제
         if separated_face_count > 0:
-            bpy.ops.mesh.delete(type='FACE')
+            bpy.ops.mesh.delete(type="FACE")
 
-        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.mode_set(mode="OBJECT")
 
         # 9. 잔여 파츠가 남아 있으면 이름 부여 및 컬렉션 이동
         remaining_face_count = len(mesh.polygons)
@@ -297,24 +312,24 @@ class OT_SeparatePartsFromIniModal(Operator):
     # 모달 오퍼레이터 실행 진입점
     def invoke(self, context, event):
         log_debug(context, "[invoke] called")
-        props = context.scene.ini_resource_props
+        props = context.scene.parts_seperator_props
         ini_path = props.ini_path
         resource = props.resource
 
         # 1. INI 파일과 Resource가 선택되었는지 확인
         if not ini_path or not resource:
-            self.report({'ERROR'}, "INI 파일과 Resource를 선택해야 합니다.")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, "INI 파일과 Resource를 선택해야 합니다.")
+            return {"CANCELLED"}
 
         # 2. INI 파일을 파싱하여 섹션별로 저장
         section_map = {}
         log_debug(context, f"[invoke] INI 파일 파싱 시작: {ini_path}")
-        bpy.ops.object.mode_set(mode='OBJECT')
-        with open(ini_path, encoding='utf-8') as f:
+        bpy.ops.object.mode_set(mode="OBJECT")
+        with open(ini_path, encoding="utf-8") as f:
             current_section = None
             for line in f:
                 line = line.strip()
-                if line.startswith('[') and line.endswith(']'):
+                if line.startswith("[") and line.endswith("]"):
                     current_section = line[1:-1]
                     section_map[current_section] = []
                 elif current_section:
@@ -327,7 +342,6 @@ class OT_SeparatePartsFromIniModal(Operator):
         # 4. TextureOverride 섹션 내에서 resource를 사용하는 구간을 모두 찾음
         target_ranges = self.find_sections_using_resource(section_map, resource)
 
-
         # 5. 각 구간별로 DrawIndexed 파츠 정보만 추출
         ini_parts = []
         for sec, start, end in target_ranges:
@@ -339,19 +353,22 @@ class OT_SeparatePartsFromIniModal(Operator):
 
         # 8. 분리할 파츠가 없으면 에러 리포트
         if not self._parts_map:
-            self.report({'ERROR'}, "분리할 파츠가 없습니다.")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, "분리할 파츠가 없습니다.")
+            return {"CANCELLED"}
 
         # 9. 분리할 파츠 정보 로그 출력
         log_debug(context, f"총 {len(self._parts_map)}개 파츠를 분리합니다:")
         for i, part in enumerate(self._parts_map):
-            log_debug(context, f"  {i+1}. {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}")
+            log_debug(
+                context,
+                f"  {i+1}. {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}",
+            )
 
         # 10. 활성 메시 오브젝트 확인 및 저장
         self._original_obj = context.active_object
-        if not self._original_obj or self._original_obj.type != 'MESH':
-            self.report({'ERROR'}, "메시 오브젝트를 선택하세요.")
-            return {'CANCELLED'}
+        if not self._original_obj or self._original_obj.type != "MESH":
+            self.report({"ERROR"}, "메시 오브젝트를 선택하세요.")
+            return {"CANCELLED"}
 
         # 11. 오브젝트의 컬렉션 정보 저장
         self._original_collections = list(self._original_obj.users_collection)
@@ -368,15 +385,15 @@ class OT_SeparatePartsFromIniModal(Operator):
         self._scene_collection.children.link(self._new_collection)
 
         # 14. 전체 오브젝트 선택 해제 및 타이머 등록
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
         wm = context.window_manager
         self._timer = wm.event_timer_add(0.1, window=context.window)
         wm.modal_handler_add(self)
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     # 모달 오퍼레이터의 반복 처리 (타이머 기반)
     def modal(self, context, event):
-        if event.type == 'TIMER':
+        if event.type == "TIMER":
             # 1. 모든 파츠 분리가 끝났는지 확인
             if self._index >= len(self._parts_map):
                 # 2. 잔여 파츠 생성
@@ -393,16 +410,22 @@ class OT_SeparatePartsFromIniModal(Operator):
 
                 # 4. 타이머 해제 및 완료 메시지
                 context.window_manager.event_timer_remove(self._timer)
-                self.report({'INFO'}, f"{len(self._parts_map)}개의 파츠 분리 완료 + 잔여 파츠 보존")
-                return {'FINISHED'}
+                self.report(
+                    {"INFO"},
+                    f"{len(self._parts_map)}개의 파츠 분리 완료 + 잔여 파츠 보존",
+                )
+                return {"FINISHED"}
 
             # 5. 현재 분리할 파츠 정보 준비
             part_info = self._parts_map[self._index]
-            log_debug(context, f"진행도: {self._index + 1}/{len(self._parts_map)} - {part_info['name']}")
+            log_debug(
+                context,
+                f"진행도: {self._index + 1}/{len(self._parts_map)} - {part_info['name']}",
+            )
 
-            index_count = part_info['index_count']
-            start_index = part_info['start_index']
-            name = part_info['name']
+            index_count = part_info["index_count"]
+            start_index = part_info["start_index"]
+            name = part_info["name"]
 
             # 6. 원본 오브젝트 복제
             self._original_obj.select_set(True)
@@ -412,28 +435,47 @@ class OT_SeparatePartsFromIniModal(Operator):
             mesh = dup_obj.data
 
             # 7. 인덱스 버퍼 생성 (삼각형만)
-            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.mode_set(mode="OBJECT")
             index_buffer = []
             poly_type_count = {}
             for poly in mesh.polygons:
-                poly_type_count[len(poly.vertices)] = poly_type_count.get(len(poly.vertices), 0) + 1
+                poly_type_count[len(poly.vertices)] = (
+                    poly_type_count.get(len(poly.vertices), 0) + 1
+                )
                 if len(poly.vertices) == 3:
                     index_buffer.extend(poly.vertices)
 
-            log_debug(context, f"[분리] 파츠: {name}, start_index={start_index}, index_count={index_count}, index_buffer_len={len(index_buffer)}")
+            log_debug(
+                context,
+                f"[분리] 파츠: {name}, start_index={start_index}, index_count={index_count}, index_buffer_len={len(index_buffer)}",
+            )
             log_debug(context, f"[분리] poly_type_count: {poly_type_count}")
             slice_start = start_index
             slice_end = start_index + index_count
-            log_debug(context, f"[분리] index_buffer[{slice_start}:{slice_end}] (len={slice_end-slice_start})")
-            log_debug(context, f"[분리] index_buffer slice head: {index_buffer[slice_start:slice_start+10] if slice_end > slice_start else []}")
-            log_debug(context, f"[분리] index_buffer slice tail: {index_buffer[max(slice_end-10,slice_start):slice_end] if slice_end > slice_start else []}")
+            log_debug(
+                context,
+                f"[분리] index_buffer[{slice_start}:{slice_end}] (len={slice_end-slice_start})",
+            )
+            log_debug(
+                context,
+                f"[분리] index_buffer slice head: {index_buffer[slice_start:slice_start+10] if slice_end > slice_start else []}",
+            )
+            log_debug(
+                context,
+                f"[분리] index_buffer slice tail: {index_buffer[max(slice_end-10,slice_start):slice_end] if slice_end > slice_start else []}",
+            )
 
             # 8. 분리할 인덱스 집합 생성
-            selected_indices = set(index_buffer[start_index:start_index + index_count])
-            log_debug(context, f"[분리] selected_indices 샘플: {list(selected_indices)[:10]} ... (총 {len(selected_indices)}개)")
+            selected_indices = set(
+                index_buffer[start_index : start_index + index_count]
+            )
+            log_debug(
+                context,
+                f"[분리] selected_indices 샘플: {list(selected_indices)[:10]} ... (총 {len(selected_indices)}개)",
+            )
 
             # 9. EDIT 모드에서 분리할 face 선택
-            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.object.mode_set(mode="EDIT")
             bm = bmesh.from_edit_mesh(mesh)
             bm.faces.ensure_lookup_table()
             bm.verts.ensure_lookup_table()
@@ -443,7 +485,10 @@ class OT_SeparatePartsFromIniModal(Operator):
                 f.select = any(v.index in selected_indices for v in f.verts)
                 if f.select:
                     face_select_count += 1
-            log_debug(context, f"[분리] 선택된 face 개수: {face_select_count} / 전체 {len(bm.faces)}")
+            log_debug(
+                context,
+                f"[분리] 선택된 face 개수: {face_select_count} / 전체 {len(bm.faces)}",
+            )
 
             bmesh.update_edit_mesh(mesh)
             selected_face_count = sum(1 for f in bm.faces if f.select)
@@ -451,14 +496,14 @@ class OT_SeparatePartsFromIniModal(Operator):
             # 10. 선택된 face가 없으면 건너뜀
             if selected_face_count == 0:
                 log_debug(context, f"[분리] 선택된 face 없음, 파츠 건너뜀")
-                bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.ops.object.mode_set(mode="OBJECT")
                 bpy.data.objects.remove(dup_obj)
                 self._index += 1
-                return {'PASS_THROUGH'}
+                return {"PASS_THROUGH"}
 
             # 11. 선택된 face를 분리
-            bpy.ops.mesh.separate(type='SELECTED')
-            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.mesh.separate(type="SELECTED")
+            bpy.ops.object.mode_set(mode="OBJECT")
 
             # 12. 분리된 오브젝트를 새 컬렉션으로 이동 및 이름 지정
             for obj in context.selected_objects:
@@ -466,26 +511,30 @@ class OT_SeparatePartsFromIniModal(Operator):
                     self._new_collection.objects.link(obj)
                     self._scene_collection.objects.unlink(obj)
                     obj.name = name
-                    log_debug(context, f"[분리] 분리된 오브젝트: {obj.name}, faces: {len(obj.data.polygons)}")
+                    log_debug(
+                        context,
+                        f"[분리] 분리된 오브젝트: {obj.name}, faces: {len(obj.data.polygons)}",
+                    )
 
             # 13. 복제 오브젝트 삭제 및 인덱스 증가
-            bpy.ops.object.select_all(action='DESELECT')
+            bpy.ops.object.select_all(action="DESELECT")
             dup_obj.select_set(True)
             bpy.ops.object.delete()
             self._index += 1
-        return {'PASS_THROUGH'}
+        return {"PASS_THROUGH"}
+
 
 # INI 파츠 분리 패널 UI
-class PT_IBResourceSelector(Panel):
+class PT_PartsSeperatorPanel(Panel):
     bl_label = "INI 파츠 분리"
-    bl_idname = "VIEW3D_PT_ib_resource_selector"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = '파츠 분리'
+    bl_idname = "VIEW3D_PT_parts_seperator_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "파츠 분리"
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.ini_resource_props
+        props = context.scene.parts_seperator_props
 
         # 1. INI 파일 열기 버튼
         layout.operator("wm.select_ini_file_panel", text="INI 파일 열기")
@@ -501,7 +550,8 @@ class PT_IBResourceSelector(Panel):
         # 4. 파츠 분리 버튼 활성화 조건
         obj = context.active_object
         enable_button = (
-            obj is not None and obj.type == 'MESH'
+            obj is not None
+            and obj.type == "MESH"
             and bool(props.ini_path.strip())
             and bool(props.resource.strip())
         )
@@ -510,3 +560,49 @@ class PT_IBResourceSelector(Panel):
         row = layout.row()
         row.enabled = enable_button
         row.operator("object.separate_parts_from_ini_modal", text="파츠 분리")
+
+
+# 파츠 분리에서 사용할 프로퍼티 그룹
+class PartsSeperatorProperties(PropertyGroup):
+    _resource_items = []
+
+    def resource_items(self, context):
+        return self._resource_items
+
+
+# 애드온 등록 함수
+def register_parts_seperator():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    Scene.parts_seperator_props = bpy.props.PointerProperty(
+        type=PartsSeperatorProperties
+    )
+    PartsSeperatorProperties.ini_path = bpy.props.StringProperty(
+        name="INI 파일 경로", description="선택된 INI 파일의 경로입니다", default=""
+    )
+    PartsSeperatorProperties.resource = bpy.props.EnumProperty(
+        name="IB",
+        description="파츠를 분리할 IB의 리소스 이름입니다",
+        items=lambda self, context: self.resource_items(context),
+    )
+    PartsSeperatorProperties.debug_mode = bpy.props.BoolProperty(
+        name="디버그 모드",
+        description="작업 단계별 디버그 로그를 콘솔에 출력합니다.\n창-시스템 콘솔에서 확인할 수 있습니다",
+        default=False,
+    )
+
+
+# 애드온 해제 함수
+def unregister_parts_seperator():
+    del Scene.parts_seperator_props
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+
+
+# Blender에 등록할 클래스 목록
+classes = (
+    PT_PartsSeperatorPanel,
+    PartsSeperatorProperties,
+    OT_SelectIniFile,
+    OT_SeparatePartsFromIniModal,
+)
