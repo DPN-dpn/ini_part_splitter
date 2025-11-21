@@ -163,7 +163,7 @@ class PT_UpdaterPanel(Panel):
         )
         row = layout.row()
         if show_restart:
-            row.operator("wm.quit_blender", text="블렌더 재시작", icon="CANCEL")
+            row.operator("wm.quit_blender", text="블렌더 종료(애드온 재실행)", icon="CANCEL")
         else:
             row.enabled = bool(update_available)
             row.operator("updater.do_update", text=update_label, icon="IMPORT")
