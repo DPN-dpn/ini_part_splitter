@@ -96,6 +96,8 @@ class OT_SeparatePartsFromIniModal(Operator):
                 continue
             current_resource = None
             start_idx = None
+            commandlist_sections = []  # run = CommandList~ 구문으로 참조되는 섹션들
+            
             for idx, line in enumerate(lines):
                 l = line.strip()
                 # 1. ib= 구문을 만나면 리소스명 추출
@@ -113,9 +115,30 @@ class OT_SeparatePartsFromIniModal(Operator):
                         else:
                             current_resource = ib_name
                             start_idx = None
+                # run = CommandList~ 구문 찾기
+                elif l.lower().startswith("run") and current_resource == resource_name:
+                    parts = l.split("=", 1)
+                    if len(parts) == 2:
+                        target_section = parts[1].strip()
+                        if target_section.startswith("CommandList") and target_section in section_map:
+                            commandlist_sections.append(target_section)
+                            log_debug(
+                                bpy.context, 
+                                f"[find_sections_using_resource] CommandList 섹션 발견: {target_section}"
+                            )
+            
             # 4. 섹션 끝까지 타겟 리소스면 마지막까지 구간 추가
             if current_resource == resource_name and start_idx is not None:
                 result.append((sec, start_idx, len(lines)))
+            
+            # 5. CommandList 섹션들도 결과에 추가
+            for cmd_sec in commandlist_sections:
+                result.append((cmd_sec, 0, len(section_map[cmd_sec])))
+                log_debug(
+                    bpy.context,
+                    f"[find_sections_using_resource] CommandList 섹션 추가: {cmd_sec} (전체 {len(section_map[cmd_sec])}줄)"
+                )
+        
         return result
 
     # INI에서 DrawIndexed 정보 추출
