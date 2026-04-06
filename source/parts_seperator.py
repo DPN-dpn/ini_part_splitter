@@ -123,84 +123,67 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
 
     # 특정 리소스를 사용하는 TextureOverride 섹션 구간 찾기
     def find_sections_using_resource(self, section_map, resource_name):
-        log_debug(
-            bpy.context,
-            "find_sections_using_resource",
-            f"resource_name={resource_name}",
-        )
+        log_debug(bpy.context, "find_sections_using_resource", f"resource_name={resource_name}")
         result = []
+        seen_cmds = set()
         for sec, lines in section_map.items():
-            log_debug(
-                bpy.context,
-                "find_sections_using_resource",
-                f"섹션 처리 시작: {sec} (줄수={len(lines)})",
-            )
+            log_debug(bpy.context, "find_sections_using_resource", f"섹션 처리 시작: {sec} (줄수={len(lines)})")
             if not sec.startswith("TextureOverride"):
                 continue
             current_resource = None
             start_idx = None
-            commandlist_sections = []  # run = CommandList~ 구문으로 참조되는 섹션들
+            commandlist_sections = []
 
             for idx, line in enumerate(lines):
                 l = line.strip()
-                # 1. ib= 구문을 만나면 리소스명 추출
                 if l.lower().startswith("ib"):
                     parts = l.split("=", 1)
                     if len(parts) == 2:
                         ib_name = parts[1].strip()
-                        log_debug(
-                            bpy.context,
-                            "find_sections_using_resource",
-                            f"{sec}: ib 발견: {ib_name} (라인 {idx})",
-                        )
-                        # 2. 이전 리소스가 타겟이면 구간 종료
+                        log_debug(bpy.context, "find_sections_using_resource", f"{sec}: ib 발견: {ib_name} (라인 {idx})")
                         if current_resource == resource_name and start_idx is not None:
                             result.append((sec, start_idx, idx))
-                            log_debug(
-                                bpy.context,
-                                "find_sections_using_resource",
-                                f"{sec}: resource 구간 추가: start={start_idx}, end={idx}",
-                            )
-                        # 3. 새 리소스 시작 또는 타겟 아님 처리
+                            log_debug(bpy.context, "find_sections_using_resource", f"{sec}: resource 구간 추가: start={start_idx}, end={idx}")
                         if ib_name == resource_name:
                             current_resource = ib_name
                             start_idx = idx
                         else:
                             current_resource = ib_name
                             start_idx = None
-                # run = CommandList~ 구문 찾기
-                elif l.lower().startswith("run") and current_resource == resource_name:
+
+                elif l.lower().startswith("run"):
                     parts = l.split("=", 1)
                     if len(parts) == 2:
                         target_section = parts[1].strip()
-                        if (
-                            target_section.startswith("CommandList")
-                            and target_section in section_map
-                        ):
-                            commandlist_sections.append(target_section)
-                            log_debug(
-                                bpy.context,
-                                "find_sections_using_resource",
-                                f"CommandList 섹션 발견: {target_section}",
-                            )
+                        if target_section.startswith("CommandList") and target_section in section_map:
+                            # 기존 동작: TextureOverride 내에서 current_resource가 타겟이면 참조된 CommandList를 나중에 추가
+                            if current_resource == resource_name:
+                                if target_section not in commandlist_sections:
+                                    commandlist_sections.append(target_section)
+                                    log_debug(bpy.context, "find_sections_using_resource", f"CommandList 섹션 발견(참조): {target_section}")
+                            # 새 동작: 참조된 CommandList 자체에 ib=resource_name이 있으면 바로 결과에 추가
+                            else:
+                                for cl_line in section_map[target_section]:
+                                    if cl_line.lower().startswith("ib"):
+                                        cl_parts = cl_line.split("=", 1)
+                                        if len(cl_parts) == 2 and cl_parts[1].strip() == resource_name:
+                                            if target_section not in seen_cmds:
+                                                result.append((target_section, 0, len(section_map[target_section])))
+                                                seen_cmds.add(target_section)
+                                                log_debug(bpy.context, "find_sections_using_resource", f"CommandList 섹션에 ib 발견, 결과 추가: {target_section}")
+                                            break
 
-            # 4. 섹션 끝까지 타겟 리소스면 마지막까지 구간 추가
+            # 섹션 끝까지 타겟 리소스이면 추가
             if current_resource == resource_name and start_idx is not None:
                 result.append((sec, start_idx, len(lines)))
-                log_debug(
-                    bpy.context,
-                    "find_sections_using_resource",
-                    f"{sec}: 섹션 끝까지 resource 유지, 구간 추가 start={start_idx}, end={len(lines)}",
-                )
+                log_debug(bpy.context, "find_sections_using_resource", f"{sec}: 섹션 끝까지 resource 유지, 구간 추가 start={start_idx}, end={len(lines)}")
 
-            # 5. CommandList 섹션들도 결과에 추가
+            # commandlist_sections에 모아둔 항목들도 결과에 추가
             for cmd_sec in commandlist_sections:
-                result.append((cmd_sec, 0, len(section_map[cmd_sec])))
-                log_debug(
-                    bpy.context,
-                    "find_sections_using_resource",
-                    f"CommandList 섹션 추가: {cmd_sec} (전체 {len(section_map[cmd_sec])}줄)",
-                )
+                if cmd_sec not in seen_cmds:
+                    result.append((cmd_sec, 0, len(section_map[cmd_sec])))
+                    seen_cmds.add(cmd_sec)
+                    log_debug(bpy.context, "find_sections_using_resource", f"CommandList 섹션 추가: {cmd_sec} (전체 {len(section_map[cmd_sec])}줄)")
 
         return result
 
