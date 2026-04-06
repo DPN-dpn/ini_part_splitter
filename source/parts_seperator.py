@@ -30,7 +30,7 @@ def log_debug(context, category, msg=None):
 
         prefix = f"({delta:.3f}s) "
 
-        props = getattr(context.scene, "parts_seperator_props", None)
+        props = getattr(context.scene, "inips_parts_seperator_props", None)
         if props and getattr(props, "debug_mode", False):
             if category:
                 print(f"{prefix}[{category}] {msg}")
@@ -380,7 +380,7 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
         except Exception:
             globals()["_log_start_time"] = None
         log_debug(context, "invoke", "called")
-        props = context.scene.parts_seperator_props
+        props = context.scene.inips_parts_seperator_props
         ini_path = props.ini_path
         resource = props.resource
 
