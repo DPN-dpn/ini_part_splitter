@@ -5,14 +5,14 @@ from bpy.types import Operator, PropertyGroup, Panel, Scene
 
 
 # DrawIndexed 값으로 face 선택 오퍼레이터
-class OT_SelectDrawIndexedMesh(Operator):
-    bl_idname = "object.select_drawindexed_mesh"
+class INIPS_OT_SelectDrawIndexedMesh(Operator):
+    bl_idname = "inips.select_drawindexed_mesh"
     bl_label = "매쉬 선택"
     bl_description = "drawIndexed 값에 해당하는 face를 오브젝트에서 선택합니다"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.drawindexed_props
+        props = context.scene.inips_drawindexed_props
         start = props.drawindexed_start
         count = props.drawindexed_count
         obj = context.active_object
@@ -73,9 +73,9 @@ class OT_SelectDrawIndexedMesh(Operator):
 
 
 # DrawIndexed 패널 UI
-class PT_DrawIndexedPanel(Panel):
+class INIPS_PT_DrawIndexedPanel(Panel):
     bl_label = "DrawIndexed"
-    bl_idname = "VIEW3D_PT_drawindexed_panel"
+    bl_idname = "INIPS_PT_drawindexed_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "파츠 분리"
@@ -83,7 +83,7 @@ class PT_DrawIndexedPanel(Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.drawindexed_props
+        props = context.scene.inips_drawindexed_props
         # 1. drawIndexed 값 입력 박스
         box = layout.box()
         box.label(text="drawIndexed = ")
@@ -109,11 +109,11 @@ class PT_DrawIndexedPanel(Panel):
         col_zero.scale_x = 0.2
         col_zero.label(text="0")
         # 7. 매쉬 선택/추출 버튼
-        box.operator("object.select_drawindexed_mesh", text="매쉬 선택")
+        box.operator("inips.select_drawindexed_mesh", text="매쉬 선택")
 
 
 # drawindexed에서 사용할 프로퍼티 그룹
-class DrawindexedProperties(PropertyGroup):
+class INIPS_DrawindexedProperties(PropertyGroup):
     _temp = None
 
 
@@ -121,8 +121,8 @@ class DrawindexedProperties(PropertyGroup):
 def register_drawindexed():
     for cls in classes:
         bpy.utils.register_class(cls)
-    Scene.drawindexed_props = bpy.props.PointerProperty(type=DrawindexedProperties)
-    DrawindexedProperties.drawindexed_start = bpy.props.IntProperty(
+    Scene.inips_drawindexed_props = bpy.props.PointerProperty(type=INIPS_DrawindexedProperties)
+    INIPS_DrawindexedProperties.drawindexed_start = bpy.props.IntProperty(
         name="DrawIndexed Start",
         description="drawindexed = ???, ???, 0 형식에서 두 번째 값",
         default=0,
@@ -130,7 +130,7 @@ def register_drawindexed():
         max=1000000000,
         step=1,
     )
-    DrawindexedProperties.drawindexed_count = bpy.props.IntProperty(
+    INIPS_DrawindexedProperties.drawindexed_count = bpy.props.IntProperty(
         name="DrawIndexed Count",
         description="drawindexed = ???, ???, 0 형식에서 첫 번째 값",
         default=0,
@@ -142,14 +142,14 @@ def register_drawindexed():
 
 # 애드온 해제 함수
 def unregister_drawindexed():
-    del Scene.drawindexed_props
+    del Scene.inips_drawindexed_props
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
 
 # Blender에 등록할 클래스 목록
 classes = (
-    PT_DrawIndexedPanel,
-    DrawindexedProperties,
-    OT_SelectDrawIndexedMesh,
+    INIPS_PT_DrawIndexedPanel,
+    INIPS_DrawindexedProperties,
+    INIPS_OT_SelectDrawIndexedMesh,
 )

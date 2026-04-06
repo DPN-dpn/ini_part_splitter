@@ -41,8 +41,8 @@ def log_debug(context, category, msg=None):
 
 
 # INI 파일 선택 및 파싱 오퍼레이터
-class OT_SelectIniFile(Operator, ImportHelper):
-    bl_idname = "wm.select_ini_file_panel"
+class INIPS_OT_SelectIniFile(Operator, ImportHelper):
+    bl_idname = "inips.select_ini_file_panel"
     bl_label = "INI 파일 선택"
     bl_description = "INI 파일을 선택하고 리소스를 불러옵니다"
     filename_ext = ".ini"
@@ -52,7 +52,7 @@ class OT_SelectIniFile(Operator, ImportHelper):
     )
 
     def execute(self, context):
-        props = context.scene.parts_seperator_props
+        props = context.scene.inips_parts_seperator_props
         # 1. 선택한 INI 파일 경로 저장
         props.ini_path = self.filepath
         log_debug(context, "select_ini", f"INI 파일 경로 저장: {self.filepath}")
@@ -86,7 +86,7 @@ class OT_SelectIniFile(Operator, ImportHelper):
             return {"CANCELLED"}
 
         # 4. Resource 목록을 프로퍼티에 저장
-        PartsSeperatorProperties._resource_items = resource_items
+        INIPS_PartsSeperatorProperties._resource_items = resource_items
         props.resource = resource_items[0][0]
         log_debug(context, "select_ini", f"리소스 목록 저장 및 선택: {props.resource}")
 
@@ -99,8 +99,8 @@ class OT_SelectIniFile(Operator, ImportHelper):
 
 
 # INI와 IB 파일을 기반으로 파츠를 분리하는 메인 오퍼레이터
-class OT_SeparatePartsFromIniModal(Operator):
-    bl_idname = "object.separate_parts_from_ini_modal"
+class INIPS_OT_SeparatePartsFromIniModal(Operator):
+    bl_idname = "inips.separate_parts_from_ini_modal"
     bl_label = "파츠 분리"
     bl_description = "선택된 INI와 IB를 기반으로 선택된 오브젝트에서 파츠를 분리합니다"
     bl_options = {"REGISTER", "UNDO"}
@@ -624,19 +624,19 @@ class OT_SeparatePartsFromIniModal(Operator):
 
 
 # INI 파츠 분리 패널 UI
-class PT_PartsSeperatorPanel(Panel):
+class INIPS_PT_PartsSeperatorPanel(Panel):
     bl_label = "INI 파츠 분리"
-    bl_idname = "VIEW3D_PT_parts_seperator_panel"
+    bl_idname = "INIPS_PT_parts_seperator_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "파츠 분리"
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.parts_seperator_props
+        props = context.scene.inips_parts_seperator_props
 
         # 1. INI 파일 열기 버튼
-        layout.operator("wm.select_ini_file_panel", text="INI 파일 열기")
+        layout.operator("inips.select_ini_file_panel", text="INI 파일 열기")
 
         # 2. INI 파일 경로와 리소스 선택 표시
         if props.ini_path:
@@ -658,11 +658,11 @@ class PT_PartsSeperatorPanel(Panel):
         # 5. 파츠 분리 버튼
         row = layout.row()
         row.enabled = enable_button
-        row.operator("object.separate_parts_from_ini_modal", text="파츠 분리")
+        row.operator("inips.separate_parts_from_ini_modal", text="파츠 분리")
 
 
 # 파츠 분리에서 사용할 프로퍼티 그룹
-class PartsSeperatorProperties(PropertyGroup):
+class INIPS_PartsSeperatorProperties(PropertyGroup):
     _resource_items = []
 
     def resource_items(self, context):
@@ -673,18 +673,18 @@ class PartsSeperatorProperties(PropertyGroup):
 def register_parts_seperator():
     for cls in classes:
         bpy.utils.register_class(cls)
-    Scene.parts_seperator_props = bpy.props.PointerProperty(
-        type=PartsSeperatorProperties
+    Scene.inips_parts_seperator_props = bpy.props.PointerProperty(
+        type=INIPS_PartsSeperatorProperties
     )
-    PartsSeperatorProperties.ini_path = bpy.props.StringProperty(
+    INIPS_PartsSeperatorProperties.ini_path = bpy.props.StringProperty(
         name="INI 파일 경로", description="선택된 INI 파일의 경로입니다", default=""
     )
-    PartsSeperatorProperties.resource = bpy.props.EnumProperty(
+    INIPS_PartsSeperatorProperties.resource = bpy.props.EnumProperty(
         name="IB",
         description="파츠를 분리할 IB의 리소스 이름입니다",
         items=lambda self, context: self.resource_items(context),
     )
-    PartsSeperatorProperties.debug_mode = bpy.props.BoolProperty(
+    INIPS_PartsSeperatorProperties.debug_mode = bpy.props.BoolProperty(
         name="디버그 모드",
         description="작업 단계별 디버그 로그를 콘솔에 출력합니다.\n창-시스템 콘솔에서 확인할 수 있습니다",
         default=False,
@@ -693,15 +693,15 @@ def register_parts_seperator():
 
 # 애드온 해제 함수
 def unregister_parts_seperator():
-    del Scene.parts_seperator_props
+    del Scene.inips_parts_seperator_props
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
 
 # Blender에 등록할 클래스 목록
 classes = (
-    PT_PartsSeperatorPanel,
-    PartsSeperatorProperties,
-    OT_SelectIniFile,
-    OT_SeparatePartsFromIniModal,
+    INIPS_PT_PartsSeperatorPanel,
+    INIPS_PartsSeperatorProperties,
+    INIPS_OT_SelectIniFile,
+    INIPS_OT_SeparatePartsFromIniModal,
 )
