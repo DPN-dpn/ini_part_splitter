@@ -59,25 +59,33 @@ class INIPS_OT_SelectIniFile(Operator, ImportHelper):
 
         # 2. INI 파일에서 TextureOverride 섹션 내 ib = 구문을 모두 찾아 Resource 목록 생성
         resource_set = set()
-        current_section = None
+        # 섹션별로 전체 파일 파싱
+        section_map = {}
         with open(self.filepath, encoding="utf-8") as f:
+            current_section = None
             for line in f:
                 line = line.strip()
-                # 2-1. 섹션명 감지
                 if line.startswith("[") and line.endswith("]"):
                     current_section = line[1:-1]
-                # 2-2. TextureOverride 섹션 내 ib = 구문 추출
-                elif (
-                    current_section
-                    and current_section.startswith("TextureOverride")
-                    and line.lower().startswith("ib")
-                ):
-                    parts = line.split("=", 1)
-                    if len(parts) == 2:
-                        ib_name = parts[1].strip()
-                        resource_set.add(ib_name)
+                    section_map[current_section] = []
+                elif current_section:
+                    section_map[current_section].append(line)
+        # TextureOverride 및 모든 CommandList 섹션에서 ib= 수집
+        for sec, lines in section_map.items():
+            if sec.startswith("TextureOverride") or sec.startswith("CommandList"):
+                for l in lines:
+                    if l.lower().startswith("ib"):
+                        parts = l.split("=", 1)
+                        if len(parts) == 2:
+                            ib_name = parts[1].strip()
+                            if ib_name:
+                                resource_set.add(ib_name)
 
-        log_debug(context, "select_ini", f"TextureOverride에서 발견된 리소스 개수: {len(resource_set)}")
+        log_debug(
+            context,
+            "select_ini",
+            f"TextureOverride에서 발견된 리소스 개수: {len(resource_set)}",
+        )
 
         # 3. Resource 목록이 없으면 에러 리포트
         resource_items = [(r, r, "") for r in sorted(resource_set)]
@@ -115,16 +123,24 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
 
     # 특정 리소스를 사용하는 TextureOverride 섹션 구간 찾기
     def find_sections_using_resource(self, section_map, resource_name):
-        log_debug(bpy.context, "find_sections_using_resource", f"resource_name={resource_name}")
+        log_debug(
+            bpy.context,
+            "find_sections_using_resource",
+            f"resource_name={resource_name}",
+        )
         result = []
         for sec, lines in section_map.items():
-            log_debug(bpy.context, "find_sections_using_resource", f"섹션 처리 시작: {sec} (줄수={len(lines)})")
+            log_debug(
+                bpy.context,
+                "find_sections_using_resource",
+                f"섹션 처리 시작: {sec} (줄수={len(lines)})",
+            )
             if not sec.startswith("TextureOverride"):
                 continue
             current_resource = None
             start_idx = None
             commandlist_sections = []  # run = CommandList~ 구문으로 참조되는 섹션들
-            
+
             for idx, line in enumerate(lines):
                 l = line.strip()
                 # 1. ib= 구문을 만나면 리소스명 추출
@@ -132,11 +148,19 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                     parts = l.split("=", 1)
                     if len(parts) == 2:
                         ib_name = parts[1].strip()
-                        log_debug(bpy.context, "find_sections_using_resource", f"{sec}: ib 발견: {ib_name} (라인 {idx})")
+                        log_debug(
+                            bpy.context,
+                            "find_sections_using_resource",
+                            f"{sec}: ib 발견: {ib_name} (라인 {idx})",
+                        )
                         # 2. 이전 리소스가 타겟이면 구간 종료
                         if current_resource == resource_name and start_idx is not None:
                             result.append((sec, start_idx, idx))
-                            log_debug(bpy.context, "find_sections_using_resource", f"{sec}: resource 구간 추가: start={start_idx}, end={idx}")
+                            log_debug(
+                                bpy.context,
+                                "find_sections_using_resource",
+                                f"{sec}: resource 구간 추가: start={start_idx}, end={idx}",
+                            )
                         # 3. 새 리소스 시작 또는 타겟 아님 처리
                         if ib_name == resource_name:
                             current_resource = ib_name
@@ -149,20 +173,35 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                     parts = l.split("=", 1)
                     if len(parts) == 2:
                         target_section = parts[1].strip()
-                        if target_section.startswith("CommandList") and target_section in section_map:
+                        if (
+                            target_section.startswith("CommandList")
+                            and target_section in section_map
+                        ):
                             commandlist_sections.append(target_section)
-                            log_debug(bpy.context, "find_sections_using_resource", f"CommandList 섹션 발견: {target_section}")
-            
+                            log_debug(
+                                bpy.context,
+                                "find_sections_using_resource",
+                                f"CommandList 섹션 발견: {target_section}",
+                            )
+
             # 4. 섹션 끝까지 타겟 리소스면 마지막까지 구간 추가
             if current_resource == resource_name and start_idx is not None:
                 result.append((sec, start_idx, len(lines)))
-                log_debug(bpy.context, "find_sections_using_resource", f"{sec}: 섹션 끝까지 resource 유지, 구간 추가 start={start_idx}, end={len(lines)}")
-            
+                log_debug(
+                    bpy.context,
+                    "find_sections_using_resource",
+                    f"{sec}: 섹션 끝까지 resource 유지, 구간 추가 start={start_idx}, end={len(lines)}",
+                )
+
             # 5. CommandList 섹션들도 결과에 추가
             for cmd_sec in commandlist_sections:
                 result.append((cmd_sec, 0, len(section_map[cmd_sec])))
-                log_debug(bpy.context, "find_sections_using_resource", f"CommandList 섹션 추가: {cmd_sec} (전체 {len(section_map[cmd_sec])}줄)")
-        
+                log_debug(
+                    bpy.context,
+                    "find_sections_using_resource",
+                    f"CommandList 섹션 추가: {cmd_sec} (전체 {len(section_map[cmd_sec])}줄)",
+                )
+
         return result
 
     # INI에서 DrawIndexed 정보 추출
@@ -178,7 +217,9 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
             results = []
 
             # 1단계: 모든 DrawIndexed와 해당 주석을 수집
-            log_debug(bpy.context, "extract_drawindexed", f"1단계 시작: lines={len(lines)}")
+            log_debug(
+                bpy.context, "extract_drawindexed", f"1단계 시작: lines={len(lines)}"
+            )
             temp_results = []
             comment_stack = []  # IF문의 중첩 레벨별 주석을 저장
             if_depth = 0
@@ -236,7 +277,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                                         "if_depth": if_depth,
                                     }
                                 )
-                                log_debug(bpy.context, "extract_drawindexed", f"DrawIndexed 발견: start={numbers[1]}, count={numbers[0]}, comment={effective_comment}, if_depth={if_depth}")
+                                log_debug(
+                                    bpy.context,
+                                    "extract_drawindexed",
+                                    f"DrawIndexed 발견: start={numbers[1]}, count={numbers[0]}, comment={effective_comment}, if_depth={if_depth}",
+                                )
 
                 # 다른 구문이 나오면 현재 레벨의 주석 리셋 (IF 블록 외부에서만)
                 elif (
@@ -246,7 +291,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                 ):
                     comment_stack = []
 
-            log_debug(bpy.context, "extract_drawindexed", f"1단계 완료: 발견된 DrawIndexed 수={len(temp_results)}")
+            log_debug(
+                bpy.context,
+                "extract_drawindexed",
+                f"1단계 완료: 발견된 DrawIndexed 수={len(temp_results)}",
+            )
             # 2단계: 같은 주석을 가진 항목들을 그룹화하고 네이밍
             comment_groups = {}
             for item in temp_results:
@@ -307,7 +356,9 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
         # 2. 원본 오브젝트를 OBJECT 모드로 전환
         bpy.ops.object.mode_set(mode="OBJECT")
         mesh = self._original_obj.data
-        log_debug(context, "create_remaining_part", "2. OBJECT 모드 전환 및 mesh 참조 획득")
+        log_debug(
+            context, "create_remaining_part", "2. OBJECT 모드 전환 및 mesh 참조 획득"
+        )
 
         # 3. 분리된 파츠의 모든 인덱스를 수집할 집합 준비
         all_separated_indices = set()
@@ -318,7 +369,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
         for poly in mesh.polygons:
             if len(poly.vertices) == 3:
                 index_buffer.extend(poly.vertices)
-        log_debug(context, "create_remaining_part", f"4. 인덱스 버퍼 구성 완료 (len={len(index_buffer)})")
+        log_debug(
+            context,
+            "create_remaining_part",
+            f"4. 인덱스 버퍼 구성 완료 (len={len(index_buffer)})",
+        )
 
         # 5. 각 파츠의 인덱스 범위를 집합에 추가
         for part_info in self._parts_map:
@@ -329,7 +384,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                     index_buffer[start_index : start_index + index_count]
                 )
                 all_separated_indices.update(part_indices)
-        log_debug(context, "create_remaining_part", f"5. 분리 파츠 인덱스 합산 완료 (총 분리 버텍스 수={len(all_separated_indices)})")
+        log_debug(
+            context,
+            "create_remaining_part",
+            f"5. 분리 파츠 인덱스 합산 완료 (총 분리 버텍스 수={len(all_separated_indices)})",
+        )
 
         # 6. EDIT 모드로 전환 후 분리된 파츠에 해당하는 면 선택
         bpy.ops.object.mode_set(mode="EDIT")
@@ -346,7 +405,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                 separated_face_count += 1
         bmesh.update_edit_mesh(mesh)
 
-        log_debug(bpy.context, "create_remaining_part", f"7. 분리된 파츠에 해당하는 면 선택 완료 (선택된 면 수={separated_face_count})")
+        log_debug(
+            bpy.context,
+            "create_remaining_part",
+            f"7. 분리된 파츠에 해당하는 면 선택 완료 (선택된 면 수={separated_face_count})",
+        )
 
         # 8. 분리된 파츠가 있으면 해당 면 삭제
         if separated_face_count > 0:
@@ -361,11 +424,19 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
             self._original_obj.name = "remaining_original"
             self._new_collection.objects.link(self._original_obj)
             self._scene_collection.objects.unlink(self._original_obj)
-            log_debug(bpy.context, "create_remaining_part", f"9. 잔여 파츠 보존: {remaining_face_count}개 면")
+            log_debug(
+                bpy.context,
+                "create_remaining_part",
+                f"9. 잔여 파츠 보존: {remaining_face_count}개 면",
+            )
         else:
             # 10. 잔여 부분이 없으면 원본 삭제
             bpy.ops.object.delete()
-            log_debug(bpy.context, "create_remaining_part", "10. 잔여 파츠 없음 - 원본 오브젝트 삭제됨")
+            log_debug(
+                bpy.context,
+                "create_remaining_part",
+                "10. 잔여 파츠 없음 - 원본 오브젝트 삭제됨",
+            )
 
     # 모달 오퍼레이터 실행 진입점
     def invoke(self, context, event):
@@ -374,7 +445,7 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
             globals()["_log_prev_time"] = time.perf_counter()
         except Exception:
             globals()["_log_prev_time"] = None
-       # 분리 전체 시간 측정 시작 시간 저장
+        # 분리 전체 시간 측정 시작 시간 저장
         try:
             globals()["_log_start_time"] = time.perf_counter()
         except Exception:
@@ -418,11 +489,15 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
         for sec, start, end in target_ranges:
             lines = section_map[sec][start:end]
             ini_parts.extend(self.extract_drawindexed_all({sec: lines}, sec))
-        log_debug(context, "invoke", f"INI에서 추출된 DrawIndexed 파츠 수: {len(ini_parts)}")
+        log_debug(
+            context, "invoke", f"INI에서 추출된 DrawIndexed 파츠 수: {len(ini_parts)}"
+        )
 
         # 6. INI 파츠 정보만 사용 (merge_parts_info 제거)
         self._parts_map = ini_parts.copy()
-        log_debug(context, "invoke", f"_parts_map에 저장된 파츠 수: {len(self._parts_map)}")
+        log_debug(
+            context, "invoke", f"_parts_map에 저장된 파츠 수: {len(self._parts_map)}"
+        )
 
         # 8. 분리할 파츠가 없으면 에러 리포트
         if not self._parts_map:
@@ -433,19 +508,29 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
         # 9. 분리할 파츠 정보 로그 출력
         log_debug(context, "invoke", f"총 {len(self._parts_map)}개 파츠를 분리합니다:")
         for i, part in enumerate(self._parts_map):
-            log_debug(context, "invoke", f"  {i+1}. {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}")
+            log_debug(
+                context,
+                "invoke",
+                f"  {i+1}. {part['name']}: 시작={part['start_index']}, 개수={part['index_count']}",
+            )
 
         # 10. 활성 메시 오브젝트 확인 및 저장
         self._original_obj = context.active_object
         if not self._original_obj or self._original_obj.type != "MESH":
             self.report({"ERROR"}, "메시 오브젝트를 선택하세요.")
             return {"CANCELLED"}
-        log_debug(context, "invoke", f"10. 활성 메시 오브젝트: {self._original_obj.name}")
+        log_debug(
+            context, "invoke", f"10. 활성 메시 오브젝트: {self._original_obj.name}"
+        )
 
         # 11. 오브젝트의 컬렉션 정보 저장
         self._original_collections = list(self._original_obj.users_collection)
         self._scene_collection = context.scene.collection
-        log_debug(context, "invoke", f"11. 오브젝트 컬렉션 저장 (개수={len(self._original_collections)})")
+        log_debug(
+            context,
+            "invoke",
+            f"11. 오브젝트 컬렉션 저장 (개수={len(self._original_collections)})",
+        )
 
         # 12. 오브젝트가 씬 컬렉션에 없으면 추가
         if self._scene_collection not in self._original_collections:
@@ -504,7 +589,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
 
             # 5. 현재 분리할 파츠 정보 준비
             part_info = self._parts_map[self._index]
-            log_debug(context, "modal", f"진행도: {self._index + 1}/{len(self._parts_map)} - {part_info['name']}")
+            log_debug(
+                context,
+                "modal",
+                f"진행도: {self._index + 1}/{len(self._parts_map)} - {part_info['name']}",
+            )
 
             index_count = part_info["index_count"]
             start_index = part_info["start_index"]
@@ -533,19 +622,39 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                 if len(poly.vertices) == 3:
                     index_buffer.extend(poly.vertices)
 
-            log_debug(context, "separate", f"파츠: {name}, start_index={start_index}, index_count={index_count}, index_buffer_len={len(index_buffer)}")
+            log_debug(
+                context,
+                "separate",
+                f"파츠: {name}, start_index={start_index}, index_count={index_count}, index_buffer_len={len(index_buffer)}",
+            )
             log_debug(context, "separate", f"poly_type_count: {poly_type_count}")
             slice_start = start_index
             slice_end = start_index + index_count
-            log_debug(context, "separate", f"index_buffer[{slice_start}:{slice_end}] (len={slice_end-slice_start})")
-            log_debug(context, "separate", f"index_buffer slice head: {index_buffer[slice_start:slice_start+10] if slice_end > slice_start else []}")
-            log_debug(context, "separate", f"index_buffer slice tail: {index_buffer[max(slice_end-10,slice_start):slice_end] if slice_end > slice_start else []}")
+            log_debug(
+                context,
+                "separate",
+                f"index_buffer[{slice_start}:{slice_end}] (len={slice_end-slice_start})",
+            )
+            log_debug(
+                context,
+                "separate",
+                f"index_buffer slice head: {index_buffer[slice_start:slice_start+10] if slice_end > slice_start else []}",
+            )
+            log_debug(
+                context,
+                "separate",
+                f"index_buffer slice tail: {index_buffer[max(slice_end-10,slice_start):slice_end] if slice_end > slice_start else []}",
+            )
 
             # 8. 분리할 인덱스 집합 생성
             selected_indices = set(
                 index_buffer[start_index : start_index + index_count]
             )
-            log_debug(context, "separate", f"selected_indices 샘플: {list(selected_indices)[:10]} ... (총 {len(selected_indices)}개)")
+            log_debug(
+                context,
+                "separate",
+                f"selected_indices 샘플: {list(selected_indices)[:10]} ... (총 {len(selected_indices)}개)",
+            )
 
             # 9. EDIT 모드에서 분리할 face 선택
             bpy.ops.object.mode_set(mode="EDIT")
@@ -558,7 +667,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                 f.select = any(v.index in selected_indices for v in f.verts)
                 if f.select:
                     face_select_count += 1
-            log_debug(context, "separate", f"선택된 face 개수: {face_select_count} / 전체 {len(bm.faces)}")
+            log_debug(
+                context,
+                "separate",
+                f"선택된 face 개수: {face_select_count} / 전체 {len(bm.faces)}",
+            )
 
             bmesh.update_edit_mesh(mesh)
             selected_face_count = sum(1 for f in bm.faces if f.select)
@@ -597,7 +710,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
                     self._new_collection.objects.link(obj)
                     self._scene_collection.objects.unlink(obj)
                     obj.name = name
-                    log_debug(context, "separate", f"분리된 오브젝트: {obj.name}, faces: {len(obj.data.polygons)}")
+                    log_debug(
+                        context,
+                        "separate",
+                        f"분리된 오브젝트: {obj.name}, faces: {len(obj.data.polygons)}",
+                    )
 
             # 13. 복제 오브젝트 삭제 및 인덱스 증가 및 사용하지 않는 데이터 정리
             bpy.ops.object.select_all(action="DESELECT")
