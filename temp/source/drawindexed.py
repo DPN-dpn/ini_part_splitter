@@ -121,7 +121,9 @@ class INIPS_DrawindexedProperties(PropertyGroup):
 def register_drawindexed():
     for cls in classes:
         bpy.utils.register_class(cls)
-    Scene.inips_drawindexed_props = bpy.props.PointerProperty(type=INIPS_DrawindexedProperties)
+    Scene.inips_drawindexed_props = bpy.props.PointerProperty(
+        type=INIPS_DrawindexedProperties
+    )
     INIPS_DrawindexedProperties.drawindexed_start = bpy.props.IntProperty(
         name="DrawIndexed Start",
         description="drawindexed = ???, ???, 0 형식에서 두 번째 값",

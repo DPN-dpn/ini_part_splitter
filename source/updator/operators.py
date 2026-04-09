@@ -1,15 +1,14 @@
-# 라이브러리 임포트
 import bpy
+from bpy.types import Operator
 import urllib.request
 import json
 import os
 import urllib.request
 import zipfile
 import shutil
-from bpy.types import Operator, Panel
 
 
-def redraw_ui_regions(context):
+def _redraw_ui_regions(context):
     # 패널 강제 새로고침
     for window in context.window_manager.windows:
         for area in window.screen.areas:
@@ -35,7 +34,7 @@ class INIPS_OT_CheckUpdate(Operator):
                 latest_version = data.get("tag_name", "").lstrip("v")
                 context.scene["inips.latest_version"] = latest_version
                 # 현재 버전 가져오기
-                from .. import bl_info
+                from ... import bl_info
 
                 current_version = ".".join(map(str, bl_info["version"]))
                 context.scene["inips.current_version"] = current_version
@@ -52,7 +51,7 @@ class INIPS_OT_CheckUpdate(Operator):
             context.scene["inips.update_available"] = False
             self.report({"ERROR"}, f"업데이트 확인 실패: {e}")
 
-        redraw_ui_regions(context)
+        _redraw_ui_regions(context)
         return {"FINISHED"}
 
 
@@ -108,7 +107,7 @@ class INIPS_OT_DoUpdate(Operator):
 
             self.report({"WARNING"}, "블렌더를 재시작해, 애드온을 새로고침해 주세요.")
             context.scene["inips.show_restart"] = True
-            redraw_ui_regions(context)
+            _redraw_ui_regions(context)
             return {"FINISHED"}
 
         except Exception as e:
@@ -131,61 +130,18 @@ class INIPS_OT_OpenGithub(Operator):
         return {"FINISHED"}
 
 
-# 업데이터 패널 UI
-class INIPS_PT_UpdaterPanel(Panel):
-    bl_label = "업데이트"
-    bl_idname = "inips_PT_updater_panel"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "파츠 분리"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        latest_version = scene.get("inips.latest_version", "")
-        current_version = scene.get("inips.current_version", "")
-        update_available = scene.get("inips.update_available", False)
-        show_restart = scene.get("inips.show_restart", False)
-
-        # 버튼 라벨 조건 분기
-        if not latest_version:
-            update_label = "업데이트 체크 필요"
-        elif not update_available:
-            update_label = "현재 최신 버전입니다"
-        else:
-            update_label = f"업데이트: {current_version} → {latest_version}"
-
-        layout.operator(
-            "inips.check_update", text="업데이트 체크", icon="FILE_REFRESH"
-        )
-        row = layout.row()
-        if show_restart:
-            row.operator(
-                "wm.quit_blender", text="블렌더 종료(애드온 재실행)", icon="CANCEL"
-            )
-        else:
-            row.enabled = bool(update_available)
-            row.operator("inips.do_update", text=update_label, icon="IMPORT")
-        layout.operator("inips.open_github", text="GitHub", icon="URL")
-
-
-# 애드온 등록 함수
-def register_updater():
-    for cls in classes:
-        bpy.utils.register_class(cls)
-
-
-# 애드온 해제 함수
-def unregister_updater():
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
-
-
-# Blender에 등록할 클래스 목록
 classes = (
-    INIPS_PT_UpdaterPanel,
     INIPS_OT_CheckUpdate,
     INIPS_OT_DoUpdate,
     INIPS_OT_OpenGithub,
 )
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
