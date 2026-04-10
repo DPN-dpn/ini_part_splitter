@@ -115,6 +115,8 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
 
         # 파츠 맵 생성
         self._parts_map = build_parts_map.build_parts_map(sections, resource)
+
+        # 초기화
         self._index = 0
         self._success_count = 0
         self._skipped_count = 0

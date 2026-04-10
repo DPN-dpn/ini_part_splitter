@@ -150,4 +150,15 @@ def _build_parts_map_dataclass(
 
 def build_parts_map(sections: Dict[str, Iterable[str]], resource: str) -> List[Dict]:
     parts = _build_parts_map_dataclass(sections, resource)
-    return [asdict(p) for p in parts]
+
+    # drawindexed (start_index, index_count) 기준으로 중복 제거 — 첫 등장 우선 보존
+    seen = set()
+    unique_parts = []
+    for p in parts:
+        key = (p.start_index, p.index_count)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_parts.append(p)
+
+    return [asdict(p) for p in unique_parts]

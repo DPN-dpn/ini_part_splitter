@@ -144,10 +144,7 @@ def separate_parts(self, context, obj, part, collection):
                     # unlink from scene collection (best-effort)
                     for col in list(o.users_collection):
                         if scene_col and col.name == scene_col.name:
-                            try:
-                                col.objects.unlink(o)
-                            except Exception:
-                                pass
+                            col.objects.unlink(o)
                     # link to new collection if not already linked
                     if o.name not in [obj.name for obj in collection.objects]:
                         collection.objects.link(o)
