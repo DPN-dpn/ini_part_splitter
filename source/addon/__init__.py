@@ -1,10 +1,9 @@
-from . import (xxmi_tools, migoto)
+from . import xxmi_tools
 
 
 def register():
     xxmi_tools.register()
-    migoto.register()
+
 
 def unregister():
-    migoto.unregister()
     xxmi_tools.unregister()
