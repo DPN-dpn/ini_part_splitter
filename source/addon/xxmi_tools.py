@@ -121,7 +121,7 @@ def _apply_xxmi_adapter():
             elif ib.topology == "pointlist":
                 mi.assert_pointlist_ib_is_pointless(ib, vb)
             else:
-                raise mi.Fatal("Unsupported topology (IB): {}".format(ib.topology))
+                raise mi.Fatal("지원되지 않는 토폴로지(IB): {}".format(ib.topology))
             obj["3DMigoto:IBFormat"] = ib.format
             obj["3DMigoto:FirstIndex"] = ib.first
         elif vb.topology == "trianglelist":
@@ -129,11 +129,11 @@ def _apply_xxmi_adapter():
         elif vb.topology == "trianglestrip":
             mi.import_faces_from_vb_trianglestrip(mesh, vb, flip_winding)
         elif vb.topology != "pointlist":
-            raise mi.Fatal("Unsupported topology (VB): {}".format(vb.topology))
+            raise mi.Fatal("지원되지 않는 토폴로지(VB): {}".format(vb.topology))
         if vb.topology == "pointlist":
             operator.report(
                 {"WARNING"},
-                "{}: uses point list topology, which is highly experimental and may have issues with normals/tangents/lighting. This may not be the mesh you are looking for.".format(
+                "{}: 포인트 리스트 토폴로지를 사용합니다. 이는 매우 실험적이며 노멀/탄젠트/조명에 문제가 있을 수 있습니다. 의도한 메쉬가 아닐 수 있습니다.".format(
                     mesh.name
                 ),
             )
@@ -153,7 +153,7 @@ def _apply_xxmi_adapter():
         if not texcoords:
             operator.report(
                 {"WARNING"},
-                "{}: No TEXCOORDs / UV layers imported. This may cause issues with normals/tangents/lighting on export.".format(
+                "{}: TEXCOORD/UV 레이어가 임포트되지 않았습니다. 내보내기 시 노멀/탄젠트/조명에 문제가 발생할 수 있습니다.".format(
                     mesh.name
                 ),
             )
@@ -167,15 +167,6 @@ def _apply_xxmi_adapter():
             # raw-buffers 연동으로 호출된 경우 우선 스킵
             if getattr(operator, "bl_idname", "") == "import_mesh.migoto_raw_buffers":
                 skip_validate = True
-                warn_msg = (
-                    "[3DMigoto Import] Raw buffers import: preserving original face list; "
-                    "skipping mesh.validate() to keep duplicate faces"
-                )
-                print(warn_msg)
-                try:
-                    operator.report({"INFO"}, warn_msg)
-                except Exception:
-                    pass
 
             # 인덱스 버퍼 내 중복 face가 있으면 스킵
             if ib is not None and not skip_validate:
@@ -189,15 +180,6 @@ def _apply_xxmi_adapter():
                 duplicates_in_ib = sum(c - 1 for c in orig_counter.values() if c > 1)
                 if duplicates_in_ib > 0:
                     skip_validate = True
-                    warn_msg = (
-                        f"[3DMigoto Import] Skipping mesh.validate() due to {duplicates_in_ib} duplicate faces in IB; "
-                        "preserving original face list"
-                    )
-                    print(warn_msg)
-                    try:
-                        operator.report({"WARNING"}, warn_msg)
-                    except Exception:
-                        pass
         except Exception:
             skip_validate = False
 
