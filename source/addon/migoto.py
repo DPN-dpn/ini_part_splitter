@@ -4,11 +4,11 @@ import importlib
 import collections
 
 
-class INIPS_PT_Addon_XXMI(bpy.types.Panel):
+class INIPS_PT_Addon_Migoto(bpy.types.Panel):
     bl_label = "INI 파츠 분리 옵션"
     bl_space_type = "FILE_BROWSER"
     bl_region_type = "TOOL_PROPS"
-    bl_category = "XXMI"
+    bl_category = "Migoto"
 
     @classmethod
     def poll(cls, context):
@@ -28,10 +28,10 @@ class INIPS_PT_Addon_XXMI(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         wm = context.window_manager
-        layout.prop(wm, "inips_addon_xxmi")
+        layout.prop(wm, "inips_addon_migoto")
 
 
-classes = (INIPS_PT_Addon_XXMI,)
+classes = (INIPS_PT_Addon_Migoto,)
 
 
 def _apply_xxmi_adapter():
@@ -62,7 +62,7 @@ def _apply_xxmi_adapter():
     ):
         # 체크박스가 꺼져있으면 원본 동작 호출
         wm = bpy.context.window_manager
-        if not getattr(wm, "inips_addon_xxmi", False):
+        if not getattr(wm, "inips_addon_migoto", False):
             return mi._xxmi_orig_import_3dmigoto_vb_ib(
                 operator,
                 context,
@@ -257,8 +257,8 @@ def _remove_xxmi_adapter():
 
 
 def register():
-    if not hasattr(bpy.types.WindowManager, "inips_addon_xxmi"):
-        bpy.types.WindowManager.inips_addon_xxmi = BoolProperty(
+    if not hasattr(bpy.types.WindowManager, "inips_addon_migoto"):
+        bpy.types.WindowManager.inips_addon_migoto = BoolProperty(
             name="중복 페이스 유지",
             description="중복 페이스를 유지해 최대한 원본 모델을 임포트합니다",
             default=False,
@@ -272,5 +272,5 @@ def unregister():
     _remove_xxmi_adapter()
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-    if hasattr(bpy.types.WindowManager, "inips_addon_xxmi"):
-        del bpy.types.WindowManager.inips_addon_xxmi
+    if hasattr(bpy.types.WindowManager, "inips_addon_migoto"):
+        del bpy.types.WindowManager.inips_addon_migoto
