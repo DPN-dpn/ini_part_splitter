@@ -10,7 +10,7 @@ bl_info = {
 }
 
 # 라이브러리 임포트
-from .source import core, updator, parts_sperator, drawindexed
+from .source import core, updator, parts_sperator, drawindexed, addon
 
 
 # 애드온 등록 함수
@@ -18,12 +18,14 @@ def register():
     core.register()
     parts_sperator.register()
     drawindexed.register()
+    addon.register()
     updator.register()
 
 
 # 애드온 해제 함수
 def unregister():
     updator.unregister()
+    addon.unregister()
     drawindexed.unregister()
     parts_sperator.unregister()
     core.unregister()
