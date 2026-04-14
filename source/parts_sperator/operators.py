@@ -116,6 +116,11 @@ class INIPS_OT_SeparatePartsFromIniModal(Operator):
         # 파츠 맵 생성
         self._parts_map = build_parts_map.build_parts_map(sections, resource)
 
+        # drawindexed(파츠)가 없으면 스킵
+        if not self._parts_map:
+            self.report({"INFO"}, "파츠가 없습니다. 분리 작업을 건너뜁니다.")
+            return {"CANCELLED"}
+
         # 초기화
         self._index = 0
         self._success_count = 0
