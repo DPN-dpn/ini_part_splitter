@@ -37,7 +37,6 @@ def _expand_section(
                 target = _strip_inline_comments(parts[1])
                 if (
                     target
-                    and target.startswith("CommandList")
                     and target in ini_sections
                 ):
                     expanded = _expand_section(
@@ -74,10 +73,21 @@ def defunctionalize_sections(ini_sections):
     memo = {}  # 섹션별 확장 결과 캐시
     recursion_marker_fmt = "; [defunctionalize_sections] recursion skipped: {}"
 
+    # 1단계: 모든 섹션을 스캔해서 run 타겟 수집
+    run_targets = set()
+    for lines in ini_sections.values():
+        for line in lines:
+            if re.match(r"^\s*run\s*=", line, re.IGNORECASE):
+                parts = line.split("=", 1)
+                if len(parts) == 2:
+                    target = _strip_inline_comments(parts[1])
+                    if target and target in ini_sections:
+                        run_targets.add(target)
+
+    # 2단계: run 타겟 섹션은 함수 정의로 보고 출력에서 제외
     result = OrderedDict()
     for sec_name in ini_sections:
-        # CommandList로 시작하는 섹션은 함수 정의이므로 결과에는 포함하지 않음
-        if sec_name.startswith("CommandList"):
+        if sec_name in run_targets:  # ← 참조된 섹션은 제외
             continue
         result[sec_name] = _expand_section(
             sec_name, set(), ini_sections, memo, recursion_marker_fmt
