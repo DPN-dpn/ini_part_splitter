@@ -30,7 +30,7 @@ def _extract_drawindexed_from_lines(
 
     for item in filtered:
         if item.startswith(";") or item.startswith("#"):
-            m = re.match(r"[;#]\s*([^\(]+)", item)
+            m = re.match(r"^[;#]\s*(.*?)(?:\s*\(\d+\))?\s*$", item)
             if m:
                 last_comment = m.group(1).strip()
             else:

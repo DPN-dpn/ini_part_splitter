@@ -2,7 +2,7 @@
 bl_info = {
     "name": "INI 기반 파츠 분리",
     "author": "DPN",
-    "version": (2, 1, 3),
+    "version": (2, 1, 4),
     "blender": (2, 80, 0),
     "location": "3D 뷰 > 우측 UI 패널 > 파츠 분리",
     "description": "INI의 DrawIndexed 값을 기반으로 오브젝트에서 파츠를 분리합니다.",
