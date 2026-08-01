@@ -29,7 +29,6 @@ class INIPS_PT_Addon_XXMI(bpy.types.Panel):
         layout = self.layout
         wm = context.window_manager
         layout.prop(wm, "inips_addon_xxmi")
-        layout.prop(wm, "inips_addon_xxmi_clear_vertex")
 
 
 classes = (INIPS_PT_Addon_XXMI,)
@@ -63,22 +62,8 @@ def _apply_xxmi_adapter():
     ):
         # 체크박스가 꺼져있으면 원본 동작 호출
         wm = bpy.context.window_manager
-
-        # 찌꺼기 버텍스 제거 함수 (내부 헬퍼)
-        def _clear_garbage_vertices(obj_to_clear):
-            if getattr(wm, "inips_addon_xxmi_clear_vertex", False) and obj_to_clear and obj_to_clear.type == 'MESH':
-                import bmesh
-                bm = bmesh.new()
-                bm.from_mesh(obj_to_clear.data)
-                verts_to_delete = [v for v in bm.verts if len(v.link_faces) == 0]
-                if verts_to_delete:
-                    bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
-                    bm.to_mesh(obj_to_clear.data)
-                    obj_to_clear.data.update()
-                bm.free()
-
         if not getattr(wm, "inips_addon_xxmi", False):
-            obj = mi._xxmi_orig_import_3dmigoto_vb_ib(
+            return mi._xxmi_orig_import_3dmigoto_vb_ib(
                 operator,
                 context,
                 paths,
@@ -94,8 +79,6 @@ def _apply_xxmi_adapter():
                 tris_to_quads=tris_to_quads,
                 clean_loose=clean_loose,
             )
-            _clear_garbage_vertices(obj)
-            return obj
 
         # 체크박스가 켜져있으면 패치된 동작 적용 (원본 함수를 복제한 형태)
         vb, ib, name, pose_path = mi.load_3dmigoto_mesh(operator, paths)
@@ -240,7 +223,6 @@ def _apply_xxmi_adapter():
             )
             context.view_layer.objects.active = obj
 
-        _clear_garbage_vertices(obj)
         return obj
 
     mi.import_3dmigoto_vb_ib = _xxmi_import_3dmigoto_vb_ib
@@ -263,12 +245,6 @@ def register():
             description="중복 페이스를 유지해 최대한 원본 모델을 임포트합니다",
             default=False,
         )
-    if not hasattr(bpy.types.WindowManager, "inips_addon_xxmi_clear_vertex"):
-        bpy.types.WindowManager.inips_addon_xxmi_clear_vertex = BoolProperty(
-            name="찌꺼기 버텍스 제거",
-            description="메시 임포트 후 면(Face)에 연결되지 않은 찌꺼기 버텍스를 제거합니다",
-            default=False,
-        )
     for cls in classes:
         bpy.utils.register_class(cls)
     _apply_xxmi_adapter()
@@ -280,5 +256,3 @@ def unregister():
         bpy.utils.unregister_class(cls)
     if hasattr(bpy.types.WindowManager, "inips_addon_xxmi"):
         del bpy.types.WindowManager.inips_addon_xxmi
-    if hasattr(bpy.types.WindowManager, "inips_addon_xxmi_clear_vertex"):
-        del bpy.types.WindowManager.inips_addon_xxmi_clear_vertex
