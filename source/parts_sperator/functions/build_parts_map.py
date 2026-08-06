@@ -12,7 +12,7 @@ class PartInfo:
 
 
 def _extract_drawindexed_from_lines(
-    lines: Iterable[str], counter: int
+    lines: Iterable[str], counter: int, variables: Dict[str, int]
 ) -> Tuple[List[PartInfo], int]:
     # 섹션 내용에서 주석과 drawindexed만 필터링 (원본 순서 유지)
     filtered = []
@@ -43,17 +43,43 @@ def _extract_drawindexed_from_lines(
             if len(parts_eq) != 2:
                 continue
             val = parts_eq[1].strip()
-            if not re.match(r"^\s*\d+\s*,\s*\d+\s*,\s*0\s*$", val):
+            
+            tokens = [t.strip() for t in val.split(',')]
+            if len(tokens) < 2:
                 continue
-            if val in seen_values:
+                
+            resolved = []
+            valid = True
+            for token in tokens:
+                token_lower = token.lower()
+                if token_lower.startswith('$'):
+                    if token_lower in variables:
+                        resolved.append(variables[token_lower])
+                    else:
+                        valid = False
+                        break
+                elif token.isdigit():
+                    resolved.append(int(token))
+                else:
+                    valid = False
+                    break
+                    
+            if not valid:
                 continue
-            seen_values.add(val)
-            numbers = list(map(int, re.findall(r"\d+", val)))
-            if len(numbers) >= 2:
+                
+            if len(resolved) >= 3 and resolved[2] != 0:
+                continue
+                
+            resolved_tuple = tuple(resolved)
+            if resolved_tuple in seen_values:
+                continue
+            seen_values.add(resolved_tuple)
+            
+            if len(resolved) >= 2:
                 temp_results.append(
                     {
-                        "start_index": numbers[1],
-                        "index_count": numbers[0],
+                        "start_index": resolved[1],
+                        "index_count": resolved[0],
                         "comment": last_comment,
                     }
                 )
@@ -103,6 +129,14 @@ def _build_parts_map_dataclass(
                 s = s[:idx]
         return s.strip()
 
+    variables = {}
+    for sec_name, lines in sections.items():
+        for line in lines:
+            line = _strip_inline_comment(line)
+            match = re.search(r'(?:global\s+)?(\$\w+)\s*=\s*(\d+)', line, re.IGNORECASE)
+            if match:
+                variables[match.group(1).lower()] = int(match.group(2))
+
     # TextureOverride 섹션에서 ib = {resource} 구간만 수집
     ranges = []
     for sec, lines in sections.items():
@@ -142,7 +176,7 @@ def _build_parts_map_dataclass(
     parts: List[PartInfo] = []
     for sec, start, end in ordered_ranges:
         sec_lines = list(sections.get(sec, []))[start:end]
-        new_parts, counter = _extract_drawindexed_from_lines(sec_lines, counter)
+        new_parts, counter = _extract_drawindexed_from_lines(sec_lines, counter, variables)
         parts.extend(new_parts)
 
     return parts

@@ -243,7 +243,7 @@ def register():
         bpy.types.WindowManager.inips_addon_xxmi = BoolProperty(
             name="중복 페이스 유지",
             description="중복 페이스를 유지해 최대한 원본 모델을 임포트합니다",
-            default=False,
+            default=True,
         )
     for cls in classes:
         bpy.utils.register_class(cls)
