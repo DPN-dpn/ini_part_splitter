@@ -42,190 +42,64 @@ def _apply_xxmi_adapter():
     if hasattr(mi, "_xxmi_orig_import_3dmigoto_vb_ib"):
         return
 
+    import inspect
+    import re
+    import textwrap
+
     mi._xxmi_orig_import_3dmigoto_vb_ib = mi.import_3dmigoto_vb_ib
 
-    def _xxmi_import_3dmigoto_vb_ib(
-        operator,
-        context,
-        paths,
-        flip_texcoord_v: bool = True,
-        flip_winding: bool = False,
-        flip_mesh: bool = False,
-        flip_normal: bool = False,
-        axis_forward="-Z",
-        axis_up="Y",
-        pose_cb_off=[0, 0],
-        pose_cb_step=1,
-        merge_verts: bool = False,
-        tris_to_quads: bool = False,
-        clean_loose: bool = False,
-    ):
-        # 체크박스가 꺼져있으면 원본 동작 호출
-        wm = bpy.context.window_manager
-        if not getattr(wm, "inips_addon_xxmi", False):
-            return mi._xxmi_orig_import_3dmigoto_vb_ib(
-                operator,
-                context,
-                paths,
-                flip_texcoord_v=flip_texcoord_v,
-                flip_winding=flip_winding,
-                flip_mesh=flip_mesh,
-                flip_normal=flip_normal,
-                axis_forward=axis_forward,
-                axis_up=axis_up,
-                pose_cb_off=pose_cb_off,
-                pose_cb_step=pose_cb_step,
-                merge_verts=merge_verts,
-                tris_to_quads=tris_to_quads,
-                clean_loose=clean_loose,
-            )
+    try:
+        source = inspect.getsource(mi.import_3dmigoto_vb_ib)
+    except Exception as e:
+        print(f"INIPS Adapter Error: 원본 함수 소스를 가져올 수 없습니다. {e}")
+        return
 
-        # 체크박스가 켜져있으면 패치된 동작 적용 (원본 함수를 복제한 형태)
-        vb, ib, name, pose_path = mi.load_3dmigoto_mesh(operator, paths)
+    pattern = re.compile(r'^([ \t]+)mesh\.validate\(\s*verbose=False,\s*clean_customdata=False\s*\)', re.MULTILINE)
 
-        mesh = bpy.data.meshes.new(name)
-        obj = bpy.data.objects.new(mesh.name, mesh)
-
-        global_matrix = mi.axis_conversion(
-            from_forward=axis_forward, from_up=axis_up
-        ).to_4x4()
-        obj.matrix_world = global_matrix
-
-        if hasattr(operator.properties, "semantic_remap"):
-            semantic_translations = vb.layout.apply_semantic_remap(operator)
-        else:
-            semantic_translations = vb.layout.get_semantic_remap()
-
-        obj["3DMigoto:VBLayout"] = vb.layout.serialise()
-        obj["3DMigoto:Topology"] = vb.topology
-        for raw_vb in vb.vbs:
-            obj["3DMigoto:VB%iStride" % raw_vb.idx] = raw_vb.stride
-        obj["3DMigoto:FirstVertex"] = vb.first
-        obj["3DMigoto:FlipWinding"] = flip_winding
-        obj["3DMigoto:FlipNormal"] = flip_normal
-        obj["3DMigoto:FlipMesh"] = flip_mesh
-        if flip_mesh:
-            flip_winding = not flip_winding
-
-        if ib is not None:
-            if ib.topology in ("trianglelist", "trianglestrip"):
-                try:
-                    mi.import_faces_from_ib(
-                        mesh, ib, flip_winding, index_offset=vb.first
-                    )
-                except TypeError:
-                    try:
-                        mi.import_faces_from_ib(mesh, ib, flip_winding, vb.first)
-                    except TypeError:
-                        mi.import_faces_from_ib(mesh, ib, flip_winding)
-            elif ib.topology == "pointlist":
-                mi.assert_pointlist_ib_is_pointless(ib, vb)
-            else:
-                raise mi.Fatal("지원되지 않는 토폴로지(IB): {}".format(ib.topology))
-            obj["3DMigoto:IBFormat"] = ib.format
-            obj["3DMigoto:FirstIndex"] = ib.first
-        elif vb.topology == "trianglelist":
-            mi.import_faces_from_vb_trianglelist(mesh, vb, flip_winding)
-        elif vb.topology == "trianglestrip":
-            mi.import_faces_from_vb_trianglestrip(mesh, vb, flip_winding)
-        elif vb.topology != "pointlist":
-            raise mi.Fatal("지원되지 않는 토폴로지(VB): {}".format(vb.topology))
-        if vb.topology == "pointlist":
-            operator.report(
-                {"WARNING"},
-                "{}: 포인트 리스트 토폴로지를 사용합니다. 이는 매우 실험적이며 노멀/탄젠트/조명에 문제가 있을 수 있습니다. 의도한 메쉬가 아닐 수 있습니다.".format(
-                    mesh.name
-                ),
-            )
-
-        (
-            blend_indices,
-            blend_weights,
-            texcoords,
-            vertex_layers,
-            use_normals,
-            normals,
-        ) = mi.import_vertices(
-            mesh, obj, vb, operator, semantic_translations, flip_normal, flip_mesh
-        )
-
-        mi.import_uv_layers(mesh, obj, texcoords, flip_texcoord_v)
-        if not texcoords:
-            operator.report(
-                {"WARNING"},
-                "{}: TEXCOORD/UV 레이어가 임포트되지 않았습니다. 내보내기 시 노멀/탄젠트/조명에 문제가 발생할 수 있습니다.".format(
-                    mesh.name
-                ),
-            )
-
-        mi.import_vertex_layers(mesh, obj, vertex_layers)
-        mi.import_vertex_groups(mesh, obj, blend_indices, blend_weights)
-
-        # 변경된 부분: mesh.validate() 실행 여부 결정
-        skip_validate = False
-        try:
-            # raw-buffers 연동으로 호출된 경우 우선 스킵
-            if getattr(operator, "bl_idname", "") == "import_mesh.migoto_raw_buffers":
-                skip_validate = True
-
-            # 인덱스 버퍼 내 중복 face가 있으면 스킵
-            if ib is not None and not skip_validate:
-                index_offset = getattr(
-                    ib, "original_first", getattr(ib, "first", vb.first)
-                )
-                orig_keys = [
-                    tuple(sorted((i - index_offset) for i in face)) for face in ib.faces
-                ]
-                orig_counter = collections.Counter(orig_keys)
-                duplicates_in_ib = sum(c - 1 for c in orig_counter.values() if c > 1)
-                if duplicates_in_ib > 0:
+    def replacer(match):
+        indent = match.group(1)
+        block = """# --- INIPS ADAPTER INJECTED CODE ---
+skip_validate = False
+try:
+    wm = bpy.context.window_manager
+    if getattr(wm, "inips_addon_xxmi", False):
+        if getattr(operator, "bl_idname", "") == "import_mesh.migoto_raw_buffers":
+            skip_validate = True
+        elif ib is not None:
+            seen = set()
+            for face in ib.faces:
+                key = frozenset(face)
+                if key in seen:
                     skip_validate = True
-        except Exception:
-            skip_validate = False
+                    break
+                seen.add(key)
+except Exception as e:
+    print(f"INIPS Adapter Error: {e}")
 
-        if not skip_validate:
-            mesh.validate(verbose=False, clean_customdata=False)
-        mesh.update()
+if not skip_validate:
+    mesh.validate(
+        verbose=False, clean_customdata=False
+    )
+else:
+    mesh.update(calc_edges=True)
+# -----------------------------------"""
+        return "\n".join(indent + line for line in block.split("\n"))
 
-        if use_normals:
-            if bpy.app.version >= (4, 1):
-                mesh.normals_split_custom_set_from_vertices(normals)
-            else:
-                mi.import_normals_step2(mesh)
-        elif hasattr(mesh, "calc_normals"):
-            mesh.calc_normals()
+    new_source, count = pattern.subn(replacer, source)
 
-        context.scene.collection.objects.link(obj)
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
+    if count == 0:
+        print("INIPS Adapter Error: mesh.validate 호출을 찾지 못했습니다. 원본 함수를 유지합니다.")
+        return
 
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="SELECT")
-        if merge_verts:
-            bpy.ops.mesh.remove_doubles(use_sharp_edge_from_normals=True)
-        if tris_to_quads:
-            bpy.ops.mesh.tris_convert_to_quads(
-                uvs=True, vcols=True, seam=True, sharp=True, materials=True
-            )
-        if clean_loose:
-            bpy.ops.mesh.delete_loose()
-        bpy.ops.object.mode_set(mode="OBJECT")
-        if pose_path is not None:
-            mi.import_pose(
-                operator,
-                context,
-                pose_path,
-                limit_bones_to_vertex_groups=True,
-                axis_forward=axis_forward,
-                axis_up=axis_up,
-                pose_cb_off=pose_cb_off,
-                pose_cb_step=pose_cb_step,
-            )
-            context.view_layer.objects.active = obj
+    new_source = textwrap.dedent(new_source)
 
-        return obj
-
-    mi.import_3dmigoto_vb_ib = _xxmi_import_3dmigoto_vb_ib
+    exec_globals = mi.import_3dmigoto_vb_ib.__globals__
+    exec_locals = {}
+    try:
+        exec(new_source, exec_globals, exec_locals)
+        mi.import_3dmigoto_vb_ib = exec_locals['import_3dmigoto_vb_ib']
+    except Exception as e:
+        print(f"INIPS Adapter Error: 주입된 코드 컴파일 실패. 원본 함수를 유지합니다. {e}")
 
 
 def _remove_xxmi_adapter():
@@ -243,7 +117,7 @@ def register():
         bpy.types.WindowManager.inips_addon_xxmi = BoolProperty(
             name="중복 페이스 유지",
             description="중복 페이스를 유지해 최대한 원본 모델을 임포트합니다",
-            default=True,
+            default=False,
         )
     for cls in classes:
         bpy.utils.register_class(cls)
